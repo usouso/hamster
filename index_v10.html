@@ -1,0 +1,2088 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>頬袋ハムスター 試作</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #2b2b2b; overflow: hidden; overscroll-behavior: none; touch-action: none;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  canvas { display: block; touch-action: none; }
+  /* スマホ用の、画面の隅の小さなボタン */
+  .pad { position: fixed; bottom: 8px; display: flex; gap: 6px; z-index: 4; }
+  .pad.L { left: 8px; } .pad.R { right: 8px; }
+  button { font: 600 13px "Yu Gothic UI", "Hiragino Sans", "Meiryo", sans-serif; color: #eee; background: rgba(58,58,58,0.92);
+    border: 1px solid #777; border-radius: 8px; height: 38px; padding: 0 10px; touch-action: manipulation; }
+  button:active { background: #666; }
+  button.arm { background: #8a3a2a; border-color: #ff8a6a; }
+  /* 音量の目盛り */
+  #vol { position: fixed; z-index: 5; background: rgba(0,0,0,0.82); color: #eee; border-radius: 10px; padding: 8px 10px;
+    font: 600 13px "Yu Gothic UI", "Hiragino Sans", "Meiryo", sans-serif; top: 70px; left: 50%; transform: translateX(-50%); }
+  #vol.touch { top: auto; left: auto; transform: none; right: 8px; bottom: 54px; }
+  #vol .row { display: flex; align-items: center; gap: 6px; height: 34px; opacity: 0.75; }
+  #vol .row.on { opacity: 1; }
+  #vol .lab { width: 44px; } #vol .key { width: 44px; color: #aaa; font-weight: 400; text-align: right; }
+  #vol .num { width: 18px; text-align: right; }
+  #vol button { height: 30px; width: 34px; padding: 0; font-size: 16px; }
+  #vol .bar { display: flex; gap: 2px; }
+  #vol .bar i { display: block; width: 9px; height: 14px; background: #555; border-radius: 2px; }
+  #vol .bar i.f { background: #ffd95a; }
+  #vol .row.on .bar i.f { background: #fff27a; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="pad L" id="padL" hidden><button id="bWarp">スタートへ</button><button id="bReset">最初から</button></div>
+<div class="pad R" id="padR" hidden><button id="bVol">音量</button></div>
+<div id="vol" hidden></div>
+<script>
+'use strict';
+// ============================================================
+//  調整用の数値 ― ここを書き換えてリロードすればすぐ試せる
+// ============================================================
+const CONFIG = {
+  // ハムスターの最初の能力
+  START_BODY: 1.2,          // 体の大きさ
+  START_TEETH: 1.2,         // 歯の硬さ
+
+  // 消化したときの能力の伸び方
+  //   食べ物1個ごとに  硬さ割合 = 硬さ ÷ (大きさ + 硬さ)、 やわらかさ割合 = 1 − 硬さ割合
+  //   体の大きさ += 大きさ × やわらかさ割合 × BODY_RATE   … やわらかいものほど体が伸びる（大きいほど多く）
+  //   歯の硬さ   += 硬さ   × 硬さ割合       × TEETH_RATE  … 硬いものほど歯が伸びる（硬いほど多く）
+  //   両方を同じ割合で上げ下げすると、ほぼその逆比でクリア時間が変わる。
+  BODY_RATE: 0.015,
+  TEETH_RATE: 0.015,
+
+  // 頬袋
+  //   容量 = POUCH_BASE + POUCH_PER_BODY × 体の大きさ  （入れた食べ物の「大きさ」の合計で数える）
+  POUCH_BASE: 0,
+  POUCH_PER_BODY: 4.5,
+  // 消化：動きながら、頬袋の古いものから少しずつ消化していく（待ち時間なし）
+  //   1秒に消化できる量 = DIGEST_SPEED × 体の大きさ （食べ物の「大きさ」の単位）
+  DIGEST_SPEED: 1.1,
+  DIGEST_FULL_BOOST: 2,     // 頬袋がいっぱいのときは、消化がこの倍速くなる
+
+  // 食べ物  [大きさ, 硬さ, 個数, スタート地点からこの距離(px)以内に置く(0 なら全体), 見た目]
+  //   見た目は硬さの割合で決まる（やわらかい＝薄い色の四角、硬い＝宝石）。'shell' は硬い殻に入った物
+  FOODS: [
+    [1.0, 1.0, 10, 150],                              // スタート地点のまわりの種：すぐ食べられる
+    [2.0, 3.0, 4, 240, 'shell'],                      // スタート近くの殻つきのごちそう：大きさはすぐ足りるが、歯が足りない
+    [1.0, 1.0, 28],                                   // 種：最初から食べられる
+    // やわらかいもの（体が伸びる）＝果物
+    //   序盤（大きさ3.4まで）は硬さ1.2以下：最初の歯のままで食べられる
+    //   中盤からは少しずつ硬くして、歯も育てないと先へ進めないようにしてある
+    [1.3, 0.5, 16],  [1.6, 0.6, 12], [2.0, 0.8, 10], [2.5, 1.0, 8], [3.4, 1.2, 7],
+    [4.6, 2.0, 6],   [6.0, 3.0, 5],  [7.6, 4.0, 4],  [9.4, 5.0, 3],
+    // 硬いもの（歯が伸びる）＝宝石
+    [0.5, 1.3, 16], [0.65, 1.6, 12], [0.8, 2.0, 10], [1.0, 2.5, 8], [1.4, 3.4, 7],
+    [1.8, 4.6, 6],  [2.4, 6.0, 5],   [3.0, 7.6, 4],  [3.8, 9.4, 4],
+    // 大きくて硬いもの（両方伸びる）
+    [3.0, 3.0, 4], [5.0, 5.0, 3], [7.0, 7.0, 2], [8.5, 8.5, 2],
+  ],
+  // 宝石の置き方：置き方が楽譜になる
+  //   列      ：まっすぐ・ゆるく曲がった一列。順に食べると8分音符ずつテーマのメロディになり、食べ切るとドに着地してバンドが応える
+  //   かたまり：四角や丸く固めたもの。ほぼ同時に食べた音は1つの和音になり、食べ切ると花が開くような分散和音ときらっ、バンドの応え
+  GEM_ROW: [5, 8],          // 列の個数
+  GEM_BLOB: [4, 6],         // かたまりの個数
+  GEM_ROW_SHARE: 0.5,       // 宝石のうち、列にする割合（残りはかたまり）
+  ROW_PACE: 1,              // 列の間隔：1 なら、ハムスターが全速力で進むと8分音符1つにちょうど1個ずつ食べる間隔（小さいほど詰まる）
+                            //   その宝石が食べられる頃の体の大きさは「硬さ＋1」くらいと見て、その速さで決める
+  ROW_BEND: 0.9,            // 列の曲がり具合の上限（列の端から端までで向きが変わる角度、ラジアン）
+  GEM_CLEAR: 1,             // 列・かたまりのまわりに空ける幅 ＝ その宝石が食べられる頃のハムスターの直径 × これ ＋ PASS_MARGIN（壁と、その頃まだ取れない物から離す）
+  GEM_CLUSTER_GAP: 3,       // かたまりの中の宝石どうしのすき間（px）
+  GEM_NEAR_SOFT: 110,       // やわらかい物は、同じくらいの段の宝石の列・かたまりのそば（空ける幅のすぐ外、この距離(px)以内）に置く。0 なら全体にばらまく
+  BOULDER: [10, 10],        // 大岩 [大きさ, 硬さ]：食べたらクリア
+  RESPAWN_SEC: 6,           // 食べたものが別の場所に生えてくるまで（秒）。大岩は戻らない
+  FOOD_GAP: 26,             // 食べ物どうしの最低すき間（px）。最初のハムスターが通れる幅にしておく
+  // 閉じ込め防止：食べられない物どうし・食べられない物と壁のすき間は、いつも「ハムスターの直径 + PASS_MARGIN」以上にする
+  //   体が大きくなってすき間が足りなくなったら、食べられない物が GAP_PUSH_SPEED（px/秒）でゆっくり離れる
+  PASS_MARGIN: 8,
+  GAP_PUSH_SPEED: 60,
+  ITEM_SEP: 4,              // 物どうしは、いつもこれ(px)以上あける（重ねない）。取れない物を動かすときも、ほかの物にこれより近づく向きには動かさない
+
+  // 操作感
+  MOVE_SPEED: 200,          // 移動の速さ（px/秒）
+  MOVE_SPEED_PER_BODY: 9,   // 体が 1 大きくなるごとに増える速さ
+  ACCEL: 10,                // 動き出しのキビキビさ（大きいほどすぐ最高速になる）
+  DECEL: 7,                 // 止まるときのキビキビさ（大きいほどすぐ止まる）
+  // 食べ方（M キーで切り替え）
+  //   'A'：Space で食べる＋十分小さい物は触れるだけで食べる
+  //   'B'：食べられる物は全部、触れた瞬間に食べる（Space は使わない）
+  EAT_MODE_START: 'B',
+  R_HOLD_SEC: 0.8,          // R をこの秒数押し続けると最初からやり直し（短く押すとスタート地点に戻るだけ）
+  EAT_REACH: 14,            // 体のふちからこの距離（px）までのものを食べられる
+  EAT_INTERVAL: 0.12,       // Space 押しっぱなしで連続して食べる間隔（秒）
+  // 十分小さいものは触れるだけで食べる（Space いらず）
+  //   大きさ ≦ 体の大きさ × AUTO_EAT_SIZE  かつ  硬さ ≦ 歯の硬さ × AUTO_EAT_HARD  のもの
+  AUTO_EAT_SIZE: 0.5,
+  AUTO_EAT_HARD: 0.7,
+  BOUNCE_SPEED: 200,        // 食べられないものに触れたときに弾かれる速さ（操作は止まらず、物に沿って滑れる）
+  BOUNCE_MIN_SPEED: 60,     // この速さ以上でぶつかったときだけ弾く（沿って滑っているときは弾かない）
+  CORNER_ASSIST: 0.8,       // 物の角の近く（体の半径のこの割合以内）でぶつかったら、角を回り込むように横へ流す
+  // マウス・タッチ：押している間（指を置いている間）、その位置に向かって走る（追いかけ）。キーボードの操作はいつでも使える
+  CHASE_SLOW: 50,           // マウス・指とのきょりが これ＋体の半径(px) より近くなると、ゆっくり止まる
+  // 吸い寄せ：食べられる物に近づくと、物の方から小さくなりながら口へすーっと吸い込まれてきて、食べられる（大岩は触れたときだけ）
+  SUCK_RANGE: 1.5,          // 物と体のすき間が「体の半径 × これ」より近くなったら吸い込む
+  SUCK_RANGE_TOUCH: 2.1,    // スマホでは少し広めに
+  SUCK_MIN: 8,              // 体が小さいうちも、すき間がこれ(px)までは吸い込む
+  SUCK_TIME: 0.15,          // 口に届くまでの秒数
+  LIGHT_FX_FPS: 45,         // なめらかさがこれ（コマ/秒）を下回り続けたら、光や輪などの演出を軽くする（スマホ向け）
+
+  // 見た目
+  FIELD_W: 1400, FIELD_H: 860,
+  PX_BASE: 6, PX_PER_SIZE: 8,   // 画面上の大きさ(px) = PX_BASE + PX_PER_SIZE × 大きさ（ハムスターの直径・食べ物の一辺で共通）
+  POUCH_ITEM_SCALE: 0.55,       // 頬袋の中での食べ物の縮み具合（体が大きくなってから）
+  POUCH_SCALE_SMALL: 0.95,      //   体が小さいうちはこれくらい大きく見せる（小さな物1つでも、ぷくっとはっきり膨らむ）
+  POUCH_SCALE_UNTIL: 5,         //   体の大きさがここまでで、だんだん POUCH_ITEM_SCALE に近づける
+  LABEL_RANGE: 110,             // これより近い食べ物に数値を表示
+  // カメラ：体が小さいうちはハムスターの周りに寄り、育つほど引いていく
+  CAM_ZOOM_START: 2.6,          // 最初の寄り具合（広場全体が見えるときの何倍に大きく見せるか）
+  CAM_FULL_AT: 8,               // 体の大きさがここまで育つと、広場全体が見える（パソコン）
+  CAM_DEADZONE: 0.6,            // ハムスターが画面の真ん中のこの割合（幅・高さとも）の中にいる間は、画面を動かさない
+  CAM_FOLLOW: 4,                // その外に出たときに、ゆっくりついていく速さ（大きいほど速い）。全速力で走っても、遅れが画面の1割を超えない速さまでは上げる
+  CAM_ZOOM_TOUCH: 1.6,          // スマホでは、パソコンよりこの倍だけ寄せて見せる（最後まで広場全体は収めない）
+  // 足りない方の物が「呼んでくる」
+  CALL_FROM: 0.12,              // 大きさと硬さの差（大きい方に対する割合）がこれを超えたら呼び始める
+  CALL_FULL: 0.4,               // この差でいちばんはっきり呼ぶ
+  CALL_RANGE: 380,              // 呼ぶのは、ハムスターからこの距離(px)以内の、いま食べられる物（近い3つまで）
+  BOULDER_NEAR: 450,            // 大岩にこの距離(px)より近づくと、背景の音楽が少し盛り上がる
+
+  // 手触り（見た目と音だけ。遊びの数値には影響しない）
+  // つぶしと伸ばし（見た目だけ）
+  SQUASH_EAT_SMALL: 0.2,    // 小さい物を食べたとき、ぎゅっとつぶれる量
+  SQUASH_EAT_BIG: 0.45,     // 自分と同じ大きさの物を食べたとき
+  SQUASH_BUMP: 0.42,        // 取れない物にぶつかったとき、むにっとつぶれる量
+  WALK_WOBBLE: 0.1,         // 歩いているときに伸び縮みする量
+  WALK_HOP: 0.2,            // 歩いているときに跳ねる高さ（体の半径に対する割合）
+  // 画面の揺れ：普段の食事では揺らさず、特別な瞬間だけ
+  SHAKE_BIG_FROM: 0.9,      // 体の大きさのこの割合以上（自分に近い大きさ）の物を食べたとき
+  SHAKE_BIG: 2.5,           //   そのときの揺れ（px）
+  SHAKE_BIG_COOLDOWN: 5,    //   ただし前に揺れてからこの秒数のあいだは揺らさない（続けて揺れないように）
+  SHAKE_UNLOCK: 3,          // 新しく食べられるようになった瞬間の揺れ（px）
+  SHAKE_BOULDER: 6,         // 大岩を食べたときの揺れ（px、いちばん大きい）
+  SHAKE_DECAY: 12,          // 揺れが収まる速さ（px/秒）
+  // 音量：全体（- / =）、背景の音楽（[ / ]）、効果音（, / .）を、それぞれ 0〜10 の目盛りで変えられる。変えた値はブラウザに保存される
+  SOUND_VOLUME: 0.45,       // 全体の音量の目盛りが 8 のときの大きさ（前は 0.35。0 で消音）。目盛り10で約1.6倍、5で約0.4倍
+  VOLUME_START: { all: 8, music: 8, sfx: 8 },   // 最初に開いたときの目盛り（8 が基準）
+  VOLUME_SHOW_SEC: 2.5,     // 音量を変えたとき、目盛りを表示しておく秒数
+  // 音（N キーで切り替え）
+  //   'music'：背景に静かなビートと和音。食べた音は8分音符・16分音符の刻みにそろえて、和音に合う音で鳴る
+  //   'sfx'  ：食べた瞬間にそのまま鳴る効果音
+  SOUND_MODE_START: 'music',
+  MUSIC_BPM: 104,
+  MUSIC_VOLUME: 1,          // 背景の音楽の大きさ（効果音に対して）
+  MUSIC_LAYERS_AT: [2, 3.4, 5, 7, 9],      // 大きさの層（温かい楽器）は体の大きさが、硬さの層（きらきらの楽器）は歯の硬さが、これを超えるごとに1つずつ増える
+  // テーマのメロディ：[MIDI 番号, 長さ（8分音符いくつ分）]。72＝ド、67＝ソ
+  //   宝石の列を食べると一音ずつ鳴り、大岩を食べた締めくくりでは、バンド全員でこの長さのとおりに演奏する
+  //   ソ｜ミ ソ ラー ソ ミ レー｜ドー（最後の音は、締めくくりでは小節の頭でドの和音に着地する）
+  THEME: [[67, 1], [76, 1], [79, 1], [81, 2], [79, 1], [76, 1], [74, 2], [72, 8]],
+  // 果物：食べるたびにマリンバが2〜3音の短いフレーズを鳴らす。続けて食べるほど、背景にベースのリズムの層が一時的に加わる
+  GROOVE_PER_FRUIT: 0.18,   // 果物1つで増える、ベースの層の厚み（0〜1。大きい果物ほど少し多い）
+  GROOVE_HOLD: 1.5,         // 最後に果物を食べてから、この秒数はそのまま
+  GROOVE_FADE: 0.12,        // そのあと1秒にこれだけ薄くなり、0 で元に戻る
+  // ばらばらの物を続けて食べた音：16分音符の刻みに並べて、一つずつ和音の音を上がる
+  EAT_COMBO_GAP: 0.6,       // この秒数以内に続けて食べると、食べる音が1段ずつ上がる
+  EAT_QUEUE_MAX: 8,         // 並べるのはこの数まで（超えたら古いものから省く）
+  SFX_QUEUE_GAP: 0.07,      // 効果音モードで並べる間隔（秒）。音楽モードは16分音符ずつ
+  ROW_SFX_GAP: 0.13,        // 効果音モードで、列の旋律の音どうしの間隔（秒）。音楽モードは8分音符ずつ
+  BLOB_GATHER: 0.35,        // かたまりの音を1つの和音にまとめる：最初の1つを食べたとき、同じかたまりの残りで、この秒数以内に食べそうな物（進む先にある物）は、
+                            //   食べ終わるのを待ってから、次の8分音符で一緒に鳴らす（効果音モードは食べ終わったらすぐ）
+  GROW_FX_STEP: 0.02,       // 能力がこの割合（2%）伸びるごとに、きらきらの音と「体 +」の表示を出す
+};
+// ============================================================
+
+const C = CONFIG;
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const qs = new URLSearchParams(location.search);
+const BOT = qs.has('bot');
+const SIM_SPEED = Math.max(1, +qs.get('speed') || 1);
+const TAU = Math.PI * 2, EPS = 1e-9;
+const FONT = '"Yu Gothic UI", "Hiragino Sans", "Meiryo", sans-serif';
+
+const px = s => C.PX_BASE + C.PX_PER_SIZE * s;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const fmt = v => (Math.abs(v - Math.round(v)) < 1e-6 ? String(Math.round(v)) : v.toFixed(1));
+const mmss = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+
+function gains(s, h) {
+  const r = h / (s + h);
+  return { body: s * (1 - r) * C.BODY_RATE, teeth: h * r * C.TEETH_RATE };
+}
+
+// ---------------- 状態 ----------------
+let foods, respawns, floats, rings, sparks, ham, time, clock, started, cleared, clearTime, digests, eatenCount, LOG, shake, lastShakeAt;
+let groups = {};            // 宝石の列・かたまり：番号 → { kind: 'row'|'blob', n, s, h, clear, eaten, sx, sy, mel }
+let eatMode = C.EAT_MODE_START, modeSwitched = false, clearInfo = null;
+// スマホ（タッチ）向けの画面にするか。?touch を付けると、パソコンでもスマホ向けの画面で試せる
+let touchUI = qs.has('touch') || matchMedia('(pointer: coarse)').matches || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
+  (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
+let lowFx = qs.has('lowfx');   // 光や輪などの演出を軽くする（動きが重いときは自動で切り替わる）
+const ptr = { down: false, id: null, sx: 0, sy: 0 };   // 押しているマウス・指（画面の位置）
+let cam = { x: 0, y: 0, zoom: 1 }, view = { VS: 1, ox: 0, oy: 0, x0: 0, y0: 0, w: 1, h: 1 }, clusterSeq = 0;
+// カメラの寄り具合：体が小さいほど寄る。CAM_FULL_AT で広場全体
+function zoomFor(body) {
+  const t = clamp((body - C.START_BODY) / (C.CAM_FULL_AT - C.START_BODY), 0, 1);
+  return lerp(C.CAM_ZOOM_START, 1, t * t * (3 - 2 * t));
+}
+const msgCd = {};
+const input = { up: false, down: false, left: false, right: false, eat: false, eatQueued: false, rHeld: false, rTime: 0 };
+
+// ベスト記録（食べ方ごとに、このブラウザに保存）
+//   ブラウザに保存できない開き方のときは、開いているあいだだけ覚えておく
+const bestKey = mode => 'hamster-best-' + mode, bestMem = { A: null, B: null };
+function loadBest(mode) {
+  try { const v = parseFloat(localStorage.getItem(bestKey(mode))); if (isFinite(v)) return v; } catch (e) { /* 保存できない */ }
+  return bestMem[mode];
+}
+function saveBest(mode, t) {
+  bestMem[mode] = t;
+  try { localStorage.setItem(bestKey(mode), String(t)); } catch (e) { /* 保存できなくても遊べる */ }
+}
+
+function reset() {
+  foods = []; respawns = []; floats = []; rings = []; sparks = []; LOG = []; groups = {};
+  if (touchUI) eatMode = 'B';          // スマホは食べ方B（触れたら全部食べる）で固定
+  ham = {
+    x: C.FIELD_W / 2, y: C.FIELD_H / 2, vx: 0, vy: 0,
+    body: C.START_BODY, teeth: C.START_TEETH, r: px(C.START_BODY) / 2,
+    face: -Math.PI / 2, ix: 0, iy: 0, pouch: [], eatCd: 0, pulse: 0,
+    sq: 0, sqV: 0, sqAng: 0, callers: [], callKind: null, callStr: 0, callCd: 0, callScan: 0, cheekW: { '-1': [0, 0], '1': [0, 0] }, gainB: 0, gainT: 0, gainCd: 0,
+  };
+  ham.unlocked = edibleTypes();
+  time = 0; clock = 0; started = BOT; cleared = false; clearTime = null; digests = 0; eatenCount = 0; shake = 0; lastShakeAt = -99;
+  modeSwitched = false; clearInfo = null;
+  mus.goal = false; mus.fin = null; mus.groove = 0; mus.grooveAt = -9;
+  cam.x = ham.x; cam.y = ham.y; cam.zoom = zoomFor(ham.body);
+  if (AC && soundMode === 'music' && !mus.timer) musicStart();
+  clusterSeq = 0; placeMiss = 0;
+  // 置く順：大岩 → 宝石の列・かたまり（開けた場所が要るので先に。硬い段から）→ ほかの物（大きいものから）
+  const list = [], gems = [];
+  for (const [s, h, n, near = 0, look] of C.FOODS) {
+    if (lookOf(s, h, false, look) === 'gem' && !near) for (const g of gemGroups(n)) gems.push({ s, h, ...g });
+    else for (let i = 0; i < n; i++) list.push({ s, h, near, look });
+  }
+  spawnFood(C.BOULDER[0], C.BOULDER[1], true, true);
+  gems.sort((a, b) => b.h - a.h).forEach(g => spawnGroup(g.s, g.h, g.kind, g.n, true));
+  list.sort((a, b) => b.s - a.s).forEach(f => spawnFood(f.s, f.h, false, true, f.near, f.look));
+}
+
+// n 個の宝石を、列（GEM_ROW の個数）とかたまり（GEM_BLOB の個数）に分ける。列の割合は GEM_ROW_SHARE くらい
+function gemGroups(n) {
+  const out = [], least = Math.min(C.GEM_ROW[0], C.GEM_BLOB[0]);
+  let rows = 0, all = 0;
+  const pick = ([lo, hi]) => {          // 残りもちゃんと分けられる個数から選ぶ
+    const c = [];
+    for (let k = lo; k <= Math.min(hi, n); k++) if (n - k === 0 || n - k >= least) c.push(k);
+    return c.length ? c[(Math.random() * c.length) | 0] : 0;
+  };
+  while (n > 0) {
+    let kind = (all ? rows / all < C.GEM_ROW_SHARE : Math.random() < C.GEM_ROW_SHARE) ? 'row' : 'blob';
+    let k = pick(kind === 'row' ? C.GEM_ROW : C.GEM_BLOB);
+    if (!k) { kind = kind === 'row' ? 'blob' : 'row'; k = pick(kind === 'row' ? C.GEM_ROW : C.GEM_BLOB); }
+    if (!k) { kind = 'blob'; k = n; }   // 少なすぎる端数は、小さなかたまりにする
+    out.push({ kind, n: k }); n -= k; all += k; if (kind === 'row') rows += k;
+  }
+  return out;
+}
+
+// 列の形：中心からの位置の一覧。間隔は、その宝石が食べられる頃のハムスターが全速力で8分音符1つに進む距離 × ROW_PACE
+const rowGap = h => (C.MOVE_SPEED + C.MOVE_SPEED_PER_BODY * (h + 1)) * eighth() * C.ROW_PACE;
+function rowShape(n, h) {
+  const sp = rowGap(h);
+  const bend = Math.random() < 0.35 ? 0 : (Math.random() * 2 - 1) * C.ROW_BEND;   // まっすぐ、または ゆるく曲がる
+  const pts = [];
+  let x = 0, y = 0;
+  for (let i = 0; i < n; i++) {
+    pts.push([x, y]);
+    const a = bend * ((i + 0.5) / (n - 1) - 0.5);
+    x += Math.cos(a) * sp; y += Math.sin(a) * sp;
+  }
+  return center(pts);
+}
+// かたまりの形：四角（2×2、市松の5、3×2）か、丸（ひし形の4、十字の5、輪の6）。宝石どうしは GEM_CLUSTER_GAP だけあけてくっつける
+function blobShape(n, w) {
+  const SHAPES = {
+    4: [[[0, 0], [1, 0], [0, 1], [1, 1]], [[0, -1], [-1, 0], [1, 0], [0, 1]]],
+    5: [[[-1, -1], [1, -1], [0, 0], [-1, 1], [1, 1]], [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]],
+    6: [[[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [2, 1]], [0, 1, 2, 3, 4, 5].map(k => [Math.cos(k * Math.PI / 3) * 1.155, Math.sin(k * Math.PI / 3) * 1.155])],
+  };
+  const list = SHAPES[n] || [[...Array(n)].map((_, i) => [i % 2, Math.floor(i / 2)])];
+  const c = w + C.GEM_CLUSTER_GAP, turn = Math.random() < 0.5;   // 横長・縦長はどちらか
+  return center(list[(Math.random() * list.length) | 0].map(([u, v]) => turn ? [v * c, u * c] : [u * c, v * c]));
+}
+function center(pts) {
+  const mx = pts.reduce((a, p) => a + p[0], 0) / pts.length, my = pts.reduce((a, p) => a + p[1], 0) / pts.length;
+  return pts.map(([x, y]) => [x - mx, y - my]);
+}
+// 宝石の列・かたまりを置く。壁と、その宝石が食べられる頃にまだ取れない物から GEM_CLEAR の幅だけ離れた、開けた場所を探す
+let placeMiss = 0;                     // 開けた場所が見つからず、条件をゆるめて置いた回数（確認用）
+// 生える物は、ハムスターのすぐそばには置かない（体がとても大きくなっても、広場に置ける所が残るくらいに）
+const keepAway = w => Math.min(ham.r * 3, ham.r + 120) + w / 2 + 80;
+function spawnGroup(s, h, kind, n, instant) {
+  const w = px(s), id = ++clusterSeq, clear = px(h) * C.GEM_CLEAR + C.PASS_MARGIN;
+  const shape = kind === 'row' ? rowShape(n, h) : blobShape(n, w);
+  const blocker = !(s <= ham.body + EPS && h <= ham.teeth + EPS), need = passWidth();
+  let pts = null, best = null, bestGap = -Infinity, last = null;
+  for (let tries = 0; tries < 750 && !pts; tries++) {
+    // なかなか見つからなければ：空ける幅を半分に → ほかの物と FOOD_GAP あけるだけ → 重ならない（ITEM_SEP あける）だけ
+    const relax = tries < 300 ? 1 : tries < 450 ? 0.5 : 0, loose = tries >= 600, scan = loose && instant;
+    const a = kind === 'row' ? Math.random() * TAU : 0, ca = Math.cos(a), sa = Math.sin(a);
+    const rel = shape.map(([u, v]) => [u * ca - v * sa, u * sa + v * ca]);
+    const xs = rel.map(p => p[0]), ys = rel.map(p => p[1]), m = w / 2 + Math.max(clear * relax + 8, blocker ? need : 0);
+    const x0 = m - Math.min(...xs), x1 = C.FIELD_W - m - Math.max(...xs), y0 = m - Math.min(...ys), y1 = C.FIELD_H - m - Math.max(...ys);
+    if (x1 < x0 || y1 < y0) continue;
+    const cx = x0 + Math.random() * (x1 - x0), cy = y0 + Math.random() * (y1 - y0);
+    const cand = rel.map(([u, v]) => ({ x: cx + u, y: cy + v, w }));
+    last = cand;
+    // 列は、宝石と宝石の間（通り道）にも、取れない物が入らないようにする
+    const lane = kind === 'row' ? cand.slice(1).map((p, i) => ({ x: (p.x + cand[i].x) / 2, y: (p.y + cand[i].y) / 2, w })) : [];
+    let ok = cand.every(p => Math.hypot(p.x - ham.x, p.y - ham.y) >= (loose ? ham.r + w / 2 + 30 : keepAway(w) + clear * relax)), minGap = Infinity;
+    for (const o of foods) {
+      if (!ok && !scan) break;
+      const easy = o.s <= s + EPS && o.h <= h + EPS;          // この宝石が食べられる頃には、もう取れる物
+      const og = o.cluster && groups[o.cluster];
+      const oEasy = og && s <= o.s + EPS && h <= o.h + EPS;
+      for (const p of cand) {
+        const gp = rectGap(o, p).gap;
+        minGap = Math.min(minGap, gp);
+        if (gp < C.ITEM_SEP || (blocker && !o.edible && gp < need) ||
+            (!loose && (Math.max(Math.abs(o.x - p.x), Math.abs(o.y - p.y)) - (o.w + w) / 2 < C.FOOD_GAP ||
+              (!easy && gp < clear * relax) || (og && !oEasy && gp < og.clear * relax)))) { ok = false; if (!scan) break; }
+      }
+      if (ok && !loose && !easy) for (const p of lane) if (rectGap(o, p).gap < clear * relax) { ok = false; break; }
+    }
+    if (ok) pts = cand;
+    else if (scan && minGap > bestGap) { bestGap = minGap; best = cand; }
+  }
+  if (!pts) { if (!instant) return null; pts = best || last; placeMiss++; }   // 生え直すときは、置ける場所ができるまで待つ（重ねない）
+  groups[id] = { kind, n, s, h, clear, eaten: 0, sx: 0, sy: 0, mel: -1 };
+  for (const p of pts) {
+    const f = { s, h, w, x: p.x, y: p.y, boulder: false, look: 'gem', seed: Math.random(), born: instant ? 1 : 0, flash: 0, shake: 0, msgCd: 0, hitCd: 0, edible: false, revive: 0, reviveIn: 0, cluster: id };
+    f.edible = canEat(f); f.dim = f.edible ? 0 : 1;
+    foods.push(f);
+  }
+  return id;
+}
+
+// 食べた物を別の場所に生やす。宝石の列・かたまりは、最後の一つまで食べたら、同じ形のものを丸ごと別の場所に
+//   広場が混んでいて置ける場所がないときは、少し待ってからもう一度探す（物どうしは重ねない）
+function respawnFood(r) {
+  const ok = r.group ? spawnGroup(r.s, r.h, r.group, r.n, false) : spawnFood(r.s, r.h, false, false, 0, r.look);
+  if (!ok) { r.t = 1.5; respawns.push(r); }
+}
+
+// 見た目の種類：硬さの割合で決まる（'shell' は表で指定）
+function lookOf(s, h, boulder, look) {
+  if (boulder) return 'boulder';
+  if (look) return look;
+  const r = h / (s + h);
+  return r >= 0.58 ? 'gem' : r <= 0.42 ? 'soft' : 'nut';
+}
+
+// near > 0 なら、ハムスターからその距離（px）以内に置く。やわらかい物は、同じくらいの段の宝石の列・かたまりのそばに置く
+function spawnFood(s, h, boulder = false, instant = false, near = 0, look = undefined) {
+  const w = px(s), kind = lookOf(s, h, boulder, look);
+  const blocker = !(s <= ham.body + EPS && h <= ham.teeth + EPS), need = passWidth();
+  const mates = kind === 'soft' && C.GEM_NEAR_SOFT > 0 && !near ? foods.filter(o => o.cluster && s >= o.h * 0.6 && s <= o.h * 1.6) : [];
+  let x, y, ok = false, best = null, bestGap = -Infinity;
+  for (let tries = 0; tries < 450 && !ok; tries++) {
+    const loose = tries >= 300, scan = loose && instant;   // 見つからなければ：ほかの物と重ならない（ITEM_SEP あける）ことだけ守る
+    const away = loose ? ham.r + w / 2 + 30 : keepAway(w);
+    if (mates.length && tries < 200) {
+      const m = mates[(Math.random() * mates.length) | 0], a = Math.random() * TAU;
+      const d = (m.w + w) / 2 + (groups[m.cluster]?.clear || 0) + C.FOOD_GAP + Math.random() * C.GEM_NEAR_SOFT;
+      x = clamp(m.x + Math.cos(a) * d, w / 2 + 8, C.FIELD_W - w / 2 - 8);
+      y = clamp(m.y + Math.sin(a) * d, w / 2 + 8, C.FIELD_H - w / 2 - 8);
+      if (Math.hypot(x - ham.x, y - ham.y) < away) continue;
+    } else if (near > 0) {
+      const a = Math.random() * TAU, d = lerp(ham.r + w / 2 + 20, near, Math.sqrt(Math.random()));
+      x = clamp(ham.x + Math.cos(a) * d, w / 2 + 8, C.FIELD_W - w / 2 - 8);
+      y = clamp(ham.y + Math.sin(a) * d, w / 2 + 8, C.FIELD_H - w / 2 - 8);
+    } else {
+      x = w / 2 + 8 + Math.random() * (C.FIELD_W - w - 16);
+      y = w / 2 + 8 + Math.random() * (C.FIELD_H - w - 16);
+      if (Math.hypot(x - ham.x, y - ham.y) < away) continue;
+    }
+    if (boulder && Math.hypot(x - C.FIELD_W / 2, y - C.FIELD_H / 2) < 380) continue;
+    ok = true;
+    let minGap = Infinity;
+    if (blocker && Math.min(x - w / 2, y - w / 2, C.FIELD_W - x - w / 2, C.FIELD_H - y - w / 2) < need) ok = false;
+    for (const o of foods) {
+      if (!ok && !scan) break;
+      const gp = rectGap(o, { x, y, w }).gap, m = (o.w + w) / 2 + C.FOOD_GAP;
+      minGap = Math.min(minGap, gp);
+      if (gp < C.ITEM_SEP || (blocker && !o.edible && gp < need)) ok = false;
+      else if (!loose && Math.abs(o.x - x) < m && Math.abs(o.y - y) < m) ok = false;
+      // 宝石の列・かたまりのまわり：その宝石が食べられる頃にまだ取れない物は、空ける幅の中に置かない
+      else if (!loose && o.cluster && groups[o.cluster] && !(s <= o.s + EPS && h <= o.h + EPS) && gp < groups[o.cluster].clear) ok = false;
+    }
+    if (!ok && scan && minGap > bestGap) { bestGap = minGap; best = [x, y]; }
+  }
+  if (!ok) { if (!instant) return null; if (best) [x, y] = best; placeMiss++; }   // 生え直すときは、置ける場所ができるまで待つ（重ねない）
+  const f = { s, h, w, x, y, boulder, look: kind, seed: Math.random(), born: instant ? 1 : 0, flash: 0, shake: 0, msgCd: 0, hitCd: 0, edible: false, revive: 0, reviveIn: 0, cluster: 0 };
+  f.edible = canEat(f);
+  f.dim = f.edible ? 0 : 1;
+  foods.push(f);
+  return f;
+}
+
+const canEat = f => f.s <= ham.body + EPS && f.h <= ham.teeth + EPS;
+const canTouchEat = f => f.s <= ham.body * C.AUTO_EAT_SIZE + EPS && f.h <= ham.teeth * C.AUTO_EAT_HARD + EPS;
+const fill = () => ham.pouch.reduce((a, it) => a + it.s * it.left, 0);   // まだ消化されていない量
+function edibleTypes() {
+  const set = new Set();
+  for (const [s, h] of [...C.FOODS, C.BOULDER]) if (s <= ham.body + EPS && h <= ham.teeth + EPS) set.add(s + '/' + h);
+  return set;
+}
+const capacity = () => C.POUCH_BASE + C.POUCH_PER_BODY * ham.body;
+
+function lackText(f) {
+  const bs = f.s > ham.body + EPS, bt = f.h > ham.teeth + EPS;
+  return bs && bt ? '大きさも歯も足りない' : bs ? '大きさが足りない' : '歯が足りない';
+}
+
+// ハムスターが通り抜けるのに必要なすき間（px）
+const passWidth = () => px(ham.body) + C.PASS_MARGIN;
+
+// 2つの四角のすき間（いちばん近いところの距離）と、a を b から離す向き
+function rectGap(a, b) {
+  const ddx = a.x - b.x, ddy = a.y - b.y, half = (a.w + b.w) / 2;
+  const gx = Math.abs(ddx) - half, gy = Math.abs(ddy) - half;
+  const sx = Math.sign(ddx) || 1, sy = Math.sign(ddy) || 1;
+  let nx, ny;
+  if (gx > 0 && gy > 0) { const l = Math.hypot(gx, gy); nx = sx * gx / l; ny = sy * gy / l; }
+  else if (gx > gy) { nx = sx; ny = 0; } else { nx = 0; ny = sy; }
+  return { gap: Math.hypot(Math.max(gx, 0), Math.max(gy, 0)) * (gx > 0 || gy > 0 ? 1 : -1), nx, ny };
+}
+
+// 食べられない物どうし・壁とのすき間が、いまのハムスターの通れる幅より狭ければ、少しずつ離す
+//   宝石のかたまり・列は、まるごと一緒に動かす。かたまりの中はくっついているので通り道にはならない
+//   取れない物を動かすときは、ほかの物（食べられる物も）に ITEM_SEP より近づく向きには動かさない
+//   それでも、食べられる物に近すぎる・重なっている・取れない物に囲まれて届かないときは、取れない物の方を離す（食べられる物は動かさない）
+let trapped = [], trapScan = 0;
+function keepGaps(dt) {
+  const need = passWidth(), step = C.GAP_PUSH_SPEED * dt, sep = C.ITEM_SEP;
+  const obs = foods.filter(f => !f.edible), moves = new Map();
+  const push = (f, dx, dy) => { if (f.boulder) return; const k = f.cluster ? 'c' + f.cluster : f, v = moves.get(k) || [0, 0, f]; v[0] += dx; v[1] += dy; moves.set(k, v); };   // 大岩は動かさない
+  for (let i = 0; i < obs.length; i++) {
+    const a = obs[i];
+    for (let j = i + 1; j < obs.length; j++) {
+      const b = obs[j];
+      if (a.cluster && a.cluster === b.cluster) continue;
+      const lim = (a.w + b.w) / 2 + need;
+      if (Math.abs(a.x - b.x) >= lim || Math.abs(a.y - b.y) >= lim) continue;   // 遠い物どうしは計算しない
+      const g = rectGap(a, b);
+      if (g.gap >= need) continue;
+      const amt = Math.min((need - g.gap) / 2, step);
+      const wa = a.boulder ? 0 : b.boulder ? 2 : 1, wb = b.boulder ? 0 : a.boulder ? 2 : 1;
+      push(a, g.nx * amt * wa, g.ny * amt * wa);
+      push(b, -g.nx * amt * wb, -g.ny * amt * wb);
+    }
+  }
+  for (const a of obs) {                // 壁とのすき間
+    const lo = a.w / 2 + need, hiX = C.FIELD_W - lo, hiY = C.FIELD_H - lo;
+    const dx = a.x < lo ? Math.min(lo - a.x, step) : a.x > hiX ? -Math.min(a.x - hiX, step) : 0;
+    const dy = a.y < lo ? Math.min(lo - a.y, step) : a.y > hiY ? -Math.min(a.y - hiY, step) : 0;
+    if (dx || dy) push(a, dx, dy);
+  }
+  // 食べられるようになった宝石の列・かたまりのまわり（列は宝石の間の通り道も）に、取れない物が寄りすぎていたら、取れない物を少しずつ離す（続けて食べやすく）
+  const lanes = [], keep = ham.r + 4, byGroup = new Map(), edibles = [];
+  for (const f of foods) {
+    if (f.edible && !f.suck) edibles.push(f);
+    if (f.cluster && !f.suck) { const m = byGroup.get(f.cluster); if (m) m.push(f); else byGroup.set(f.cluster, [f]); }
+  }
+  for (const id in groups) {
+    const mem = byGroup.get(+id) || [];
+    if (!mem.length || !mem[0].edible || mem[0].born < 1) continue;
+    for (const m of mem) lanes.push(m);
+    if (groups[id].kind === 'row') for (let i = 1; i < mem.length; i++) lanes.push({ x: (mem[i].x + mem[i - 1].x) / 2, y: (mem[i].y + mem[i - 1].y) / 2, w: mem[i].w });
+  }
+  for (const o of obs) {
+    if (o.boulder) continue;
+    for (const p of lanes) {
+      if (Math.abs(p.x - o.x) > (p.w + o.w) / 2 + keep || Math.abs(p.y - o.y) > (p.w + o.w) / 2 + keep) continue;
+      const g = rectGap(o, p);
+      if (g.gap < keep) push(o, g.nx * Math.min(keep - g.gap, step) * 0.5, g.ny * Math.min(keep - g.gap, step) * 0.5);
+    }
+  }
+  // 食べられる物に近すぎる（重なっている）取れない物は、取れない物の方を離す
+  for (const o of obs) {
+    if (o.boulder) continue;
+    for (const f of edibles) {
+      const lim = (o.w + f.w) / 2 + sep;
+      if (Math.abs(f.x - o.x) >= lim || Math.abs(f.y - o.y) >= lim) continue;
+      const g = rectGap(o, f);
+      if (g.gap < sep) push(o, g.nx * Math.min(sep - g.gap, step), g.ny * Math.min(sep - g.gap, step));
+    }
+  }
+  // 取れない物に囲まれて、ハムスターが触れられない（吸い寄せも届かない）食べられる物があれば、まわりの取れない物を離す
+  if ((trapScan -= dt) <= 0) { trapScan = 0.5; trapped = foods.filter(f => f.edible && !f.suck && f.born >= 1 && !f.boulder && !reachable(f)); }
+  for (const f of trapped) {
+    if (f.suck || !foods.includes(f)) continue;
+    for (const o of obs) if (!o.boulder) { const g = rectGap(o, f); if (g.gap < ham.r * 2 + 4) push(o, g.nx * step, g.ny * step); }
+  }
+  // 動かす：ほかの物に近づきすぎる向きには動かさない（だめなら横だけ・縦だけを試す）
+  for (const [k, [dx, dy, f]] of moves) {
+    const l = Math.hypot(dx, dy), lim = step * 2, sc = l > lim ? lim / l : 1;
+    const mem = typeof k === 'string' ? foods.filter(o => o.cluster === f.cluster) : [f];
+    for (const [mx, my] of [[dx * sc, dy * sc], [dx * sc, 0], [0, dy * sc]]) {
+      if ((mx || my) && canShift(mem, mx, my)) { for (const o of mem) { o.x += mx; o.y += my; } break; }
+    }
+  }
+}
+// mem（かたまり・列はまるごと）を dx, dy だけ動かしても、ほかの物に ITEM_SEP より近づかず、広場の外にも出ないか
+function canShift(mem, dx, dy) {
+  const sep = C.ITEM_SEP, out = (x, y, w) => Math.max(0, w / 2 - x, w / 2 - y, x + w / 2 - C.FIELD_W, y + w / 2 - C.FIELD_H);
+  for (const m of mem) {
+    const nx = m.x + dx, ny = m.y + dy;
+    if (out(nx, ny, m.w) > out(m.x, m.y, m.w) + 1e-6) return false;
+    for (const o of foods) {
+      if (o === m || o.suck || (m.cluster && o.cluster === m.cluster)) continue;
+      const lim = (o.w + m.w) / 2 + sep;
+      if (Math.abs(o.x - nx) >= lim || Math.abs(o.y - ny) >= lim) continue;
+      const after = rectGap(o, { x: nx, y: ny, w: m.w }).gap;
+      if (after < sep && after < rectGap(o, m).gap - 1e-6) return false;   // 近づく（重なる）向き
+    }
+  }
+  return true;
+}
+// ハムスターが、この物に触れられる（または吸い寄せが届く）所に立てるか（まわりの16方向を調べる）
+function reachable(f) {
+  const r = ham.r + 1, ext = suckRange(), near = foods.filter(o => !o.edible && o.born >= 1 && rectGap(o, f).gap < r * 2 + ext + 4);
+  if (!near.length) return true;
+  for (const add of [0.5, ext * 0.8]) {
+    for (let k = 0; k < 16; k++) {
+      const a = k / 16 * TAU, c = Math.cos(a), sn = Math.sin(a), edge = (f.w / 2) / Math.max(Math.abs(c), Math.abs(sn));
+      const x = f.x + c * (edge + r + add), y = f.y + sn * (edge + r + add);
+      if (x < r || y < r || x > C.FIELD_W - r || y > C.FIELD_H - r) continue;
+      if (near.every(o => rectDist(o, x, y) >= r)) return true;
+    }
+  }
+  return false;
+}
+
+function rectDist(f, x, y) {
+  const dx = Math.max(Math.abs(x - f.x) - f.w / 2, 0);
+  const dy = Math.max(Math.abs(y - f.y) - f.w / 2, 0);
+  return Math.hypot(dx, dy);
+}
+
+function say(text, x, y, color, size = 15, key = null, cd = 0.7) {
+  if (key) { if ((msgCd[key] ?? -1) > clock) return; msgCd[key] = clock + cd; }
+  floats.push({ text, x, y, color, size, t: 0, life: 1.3 });
+}
+
+// ---------------- 食べる・消化 ----------------
+function tryEat() {
+  if (cleared) return;
+  let best = null, bestD = Infinity, block = null, blockD = Infinity;
+  for (const f of foods) {
+    if (f.born < 1 || f.suck) continue;
+    const d = rectDist(f, ham.x, ham.y) - ham.r;
+    if (d > C.EAT_REACH) continue;
+    if (f.edible) { if (d < bestD) { bestD = d; best = f; } }
+    else if (d < blockD) { blockD = d; block = f; }
+  }
+  if (!best) {
+    if (block) {
+      const dx = ham.x - block.x, dy = ham.y - block.y, d = Math.hypot(dx, dy) || 1;
+      bounce(block, dx / d, dy / d);
+    }
+    return;
+  }
+  if (fill() >= capacity()) { say('頬袋がいっぱい（消化中）', ham.x, ham.y - ham.r - 16, '#ffe08a', 14, 'full'); return; }
+  eat(best);
+}
+
+function eat(f) {
+  const fi = foods.indexOf(f);
+  if (fi >= 0) foods.splice(fi, 1);
+  eatenCount++;
+  if (!f.boulder && !f.cluster) respawns.push({ s: f.s, h: f.h, look: f.look === 'shell' ? 'shell' : undefined, t: C.RESPAWN_SEC * (0.7 + Math.random() * 0.6) });
+  const left = ham.pouch.filter(it => it.cheek < 0).reduce((a, it) => a + it.s, 0);
+  const right = ham.pouch.filter(it => it.cheek > 0).reduce((a, it) => a + it.s, 0);
+  const cheek = left <= right ? -1 : 1;
+  ham.pouch.push({
+    s: f.s, h: f.h, boulder: f.boulder, look: f.look, seed: f.seed, cheek,
+    w: f.w, w0: f.suck ? f.w * 0.35 : f.w, rot: (Math.random() - 0.5) * 0.9,
+    lx: -ham.r * 0.1 + (Math.random() - 0.5) * 4, ly: cheek * ham.r * 0.8,
+    fly: 0, fx: f.x, fy: f.y, left: 1, landed: false,
+  });
+  // 手触り：大きい物ほど大きく弾み、大きい音（触れて食べても同じ）。自分に近い大きさの物と大岩だけ画面も揺れる
+  const ratio = clamp(f.s / ham.body, 0, 1);
+  squash(ham.face, lerp(C.SQUASH_EAT_SMALL, C.SQUASH_EAT_BIG, ratio));
+  if (f.boulder) { shake = Math.max(shake, C.SHAKE_BOULDER); lastShakeAt = clock; }
+  else if (ratio >= C.SHAKE_BIG_FROM && clock - lastShakeAt >= C.SHAKE_BIG_COOLDOWN) { shake = Math.max(shake, C.SHAKE_BIG); lastShakeAt = clock; }
+  rings.push({ x: f.x, y: f.y, r0: f.w * 0.5, grow: 10 + f.w * 0.4, t: 0, life: 0.22, width: 2.5, color: '255,250,220' });
+  if (f.boulder) { mus.finaleLen = sfxFinale(); finishRun(); }   // 大岩：音楽のクライマックス
+  else if (f.cluster) groupEat(f, ratio);
+  else sfxEat(ratio, kindOf(f.s, f.h));
+}
+// 宝石の列・かたまりの一つを食べた。最後の一つなら、締めの音（列）／完成の和音ときらっ（かたまり）を鳴らして、丸ごと別の場所に生やす
+function groupEat(f, ratio) {
+  const g = groups[f.cluster];
+  if (!g) return sfxEat(ratio, 'hard');
+  g.eaten++; g.sx += f.suck ? f.suck.x0 : f.x; g.sy += f.suck ? f.suck.y0 : f.y;   // かたまりのあった場所（吸い込まれた物は、もとの場所）
+  const done = !foods.some(o => o.cluster === f.cluster);
+  if (AC && C.SOUND_VOLUME > 0) {
+    if (soundMode === 'music') { tick(); if (!mus.timer) musicStart(); }
+    if (g.kind === 'row') rowNote(g, done); else blobNote(g, done, f.cluster);
+  } else if (done && g.kind === 'blob') sparks.push({ x: g.sx / g.eaten, y: g.sy / g.eaten, t: 0, life: 0.8, s: 8 + 3 * g.n });
+  if (done) {
+    delete groups[f.cluster];
+    respawns.push({ s: g.s, h: g.h, group: g.kind, n: g.n, t: C.RESPAWN_SEC * (0.7 + Math.random() * 0.6) });
+  }
+}
+
+// 大岩を食べた：クリア。ベスト記録を更新したら知らせる（途中で食べ方を切り替えた回は記録しない）
+function finishRun() {
+  cleared = true; clearTime = time;
+  const prev = loadBest(eatMode);
+  const record = !modeSwitched && (prev === null || clearTime < prev);
+  if (record) { saveBest(eatMode, clearTime); setTimeout(sfxRecord, Math.max(350, (mus.finaleLen || 0) * 1000 - 600)); }
+  clearInfo = { mode: eatMode, prev, record, best: record ? clearTime : prev, switched: modeSwitched };
+  if (BOT) console.log('CLEAR', mmss(time), eatenCount);
+}
+
+// 頬袋の1個を消化しきった：能力が伸びる
+function digestItem(it) {
+  ham.pouch.splice(ham.pouch.indexOf(it), 1);
+  const g = gains(it.s, it.h);
+  ham.body += g.body; ham.teeth += g.teeth;
+  ham.gainB += g.body; ham.gainT += g.teeth;
+  digests++;
+  LOG.push({ t: +time.toFixed(1), body: +ham.body.toFixed(2), teeth: +ham.teeth.toFixed(2) });
+  checkUnlock();
+}
+
+// 能力が伸びて、前は食べられなかった種類が食べられるようになった瞬間の演出
+function checkUnlock() {
+  const now = edibleTypes(), fresh = [...now].filter(k => !ham.unlocked.has(k));
+  if (!fresh.length) return;
+  ham.unlocked = now;
+  const freshSet = new Set(fresh);
+  const hit = foods.filter(f => freshSet.has(f.s + '/' + f.h));
+  const delay = unlockDelay();      // 音楽モードでは、次の拍で色が戻り、フレーズが鳴る
+  for (const f of hit) { f.edible = true; f.reviveIn = Math.max(0.001, delay); }
+  hit.filter(f => f.bumped).sort((a, b) => rectDist(a, ham.x, ham.y) - rectDist(b, ham.x, ham.y)).slice(0, 3)
+    .forEach(f => say('もう食べられる！', f.x, f.y - f.w / 2 - 22, '#fff27a', 15));
+  const r = px(ham.body) / 2;
+  ham.pulse = 1;
+  shake = Math.max(shake, C.SHAKE_UNLOCK); lastShakeAt = clock;
+  rings.push({ x: ham.x, y: ham.y, r0: r, grow: 90 + r, t: 0, life: 0.7, width: 6, color: '255,240,120' });
+  rings.push({ x: ham.x, y: ham.y, r0: r, grow: 45 + r * 0.5, t: -0.12, life: 0.6, width: 3, color: '255,255,255' });
+  const boulder = fresh.includes(C.BOULDER[0] + '/' + C.BOULDER[1]);
+  say(boulder ? '大岩が食べられる！' : '新しく食べられる！', ham.x, ham.y - r - 46, '#fff27a', 22);
+  sfxUnlock(delay);
+}
+
+// 足りない方（大きさと硬さに差があるとき）の、近くにあって今食べられる物を選ぶ。差が大きいほど強く呼ぶ
+function scanCallers() {
+  const d = (ham.body - ham.teeth) / Math.max(ham.body, ham.teeth);
+  ham.callKind = Math.abs(d) > C.CALL_FROM && !cleared ? (d > 0 ? 'hard' : 'soft') : null;
+  ham.callStr = ham.callKind ? 0.15 + 0.85 * clamp((Math.abs(d) - C.CALL_FROM) / (C.CALL_FULL - C.CALL_FROM), 0, 1) : 0;
+  ham.callers = !ham.callKind ? [] : foods
+    .filter(f => f.edible && f.born >= 1 && !f.boulder && !f.suck && kindOf(f.s, f.h) === ham.callKind && rectDist(f, ham.x, ham.y) < C.CALL_RANGE)
+    .sort((a, b) => rectDist(a, ham.x, ham.y) - rectDist(b, ham.x, ham.y)).slice(0, 3);
+}
+
+// つぶしと伸ばし：ang の向きにぎゅっとつぶれて、ばねでぽよんと戻る
+function squash(ang, amt) { ham.sqAng = ang; ham.sqV += amt * 22; }
+
+function bounce(f, nx, ny) {
+  ham.vx += nx * C.BOUNCE_SPEED; ham.vy += ny * C.BOUNCE_SPEED;   // 軽く押し返す（操作はそのまま効く）
+  f.shake = 0.25; f.bumped = true; f.hitCd = 0.3;
+  sfxBump(f.s > ham.body + EPS, f.h > ham.teeth + EPS);   // 大きさが足りない／歯が足りない で音を変える
+  squash(Math.atan2(ny, nx), C.SQUASH_BUMP);
+  if (f.msgCd <= 0) { f.msgCd = 0.8; say(lackText(f), f.x, f.y - f.w / 2 - 22, '#ff4a3a', 15); }
+}
+
+function collide(f) {
+  const hw = f.w / 2;
+  const cx = clamp(ham.x, f.x - hw, f.x + hw), cy = clamp(ham.y, f.y - hw, f.y + hw);
+  const dx = ham.x - cx, dy = ham.y - cy, d = Math.hypot(dx, dy);
+  if (d >= ham.r) return;
+  let nx, ny;
+  if (d > 1e-6) {
+    nx = dx / d; ny = dy / d;
+    ham.x = cx + nx * ham.r; ham.y = cy + ny * ham.r;
+  } else {
+    const ex = hw - Math.abs(ham.x - f.x), ey = hw - Math.abs(ham.y - f.y);
+    if (ex < ey) { nx = Math.sign(ham.x - f.x) || 1; ny = 0; ham.x = f.x + nx * (hw + ham.r); }
+    else { nx = 0; ny = Math.sign(ham.y - f.y) || 1; ham.y = f.y + ny * (hw + ham.r); }
+  }
+  const vn = ham.vx * nx + ham.vy * ny;   // ぶつかっていく向きの速さ
+  if (vn < 0) { ham.vx -= vn * nx; ham.vy -= vn * ny; }   // ぶつかる向きの速さだけ消す → 物に沿って滑る
+  // 面の端（角の近く）に当たったら、角を回り込むように横へ流す（引っかからない）
+  //   斜めに押しているときは、その横向きの入力で自然に滑るので手を出さない
+  const tx = -ny, ty = nx;
+  if ((nx === 0 || ny === 0) && ham.ix * nx + ham.iy * ny < -0.9 && Math.abs(ham.ix * tx + ham.iy * ty) < 0.3) {
+    const along = (ham.x - f.x) * tx + (ham.y - f.y) * ty;
+    const edge = f.w / 2 - Math.abs(along);
+    if (edge < ham.r * C.CORNER_ASSIST) {
+      const dir = Math.sign(along) || 1, vt = ham.vx * tx + ham.vy * ty;
+      const want = dir * (C.MOVE_SPEED + C.MOVE_SPEED_PER_BODY * ham.body) * 0.8;
+      const nvt = vt + (want - vt) * 0.35;
+      ham.vx += (nvt - vt) * tx; ham.vy += (nvt - vt) * ty;
+    }
+  }
+  if (vn < -C.BOUNCE_MIN_SPEED && f.hitCd <= 0) bounce(f, nx, ny);
+}
+
+// R キー：スタート地点（の近くの空いている所）に戻る。能力も頬袋の中身もそのまま
+function warpToStart() {
+  const sx = C.FIELD_W / 2, sy = C.FIELD_H / 2, r = px(ham.body) / 2;
+  const free = (x, y) => x > r && y > r && x < C.FIELD_W - r && y < C.FIELD_H - r &&
+    foods.every(f => f.edible || rectDist(f, x, y) >= r + 6);
+  let to = [sx, sy];
+  search: for (let d = 0; d < 600; d += 8) {
+    for (let a = 0; a < TAU; a += Math.max(0.15, 8 / Math.max(d, 1))) {
+      const x = sx + Math.cos(a) * d, y = sy + Math.sin(a) * d;
+      if (free(x, y)) { to = [x, y]; break search; }
+    }
+  }
+  rings.push({ x: ham.x, y: ham.y, r0: ham.r, grow: 30, t: 0, life: 0.35, width: 3, color: '255,255,255' });
+  ham.x = to[0]; ham.y = to[1]; ham.vx = ham.vy = 0; cam.x = ham.x; cam.y = ham.y;
+  for (const it of ham.pouch) it.fly = 1;
+  rings.push({ x: ham.x, y: ham.y, r0: ham.r, grow: 40, t: 0, life: 0.45, width: 3, color: '255,255,255' });
+  say('スタート地点に戻った', ham.x, ham.y - ham.r - 18, '#ffffff', 15);
+}
+
+// 頬袋の中での見た目の大きさ：体が小さいうちほど大きく見せる
+const pouchScale = () => lerp(C.POUCH_SCALE_SMALL, C.POUCH_ITEM_SCALE, clamp((ham.body - C.START_BODY) / (C.POUCH_SCALE_UNTIL - C.START_BODY), 0, 1));
+const pouchSide = it => it.w * pouchScale();
+
+// 頬袋の中身を押し合わせて、ほっぺたの横にふくらませる（ハムスターの向きに沿った座標）
+function relaxPouch(dt) {
+  const r = ham.r, P = ham.pouch;
+  const k = 1 - Math.exp(-dt * 4);
+  for (const it of P) {
+    it.lx += (-r * 0.15 - it.lx) * k;
+    it.ly += (it.cheek * r * 0.75 - it.ly) * k;
+  }
+  for (let iter = 0; iter < 4; iter++) {
+    for (let i = 0; i < P.length; i++) {
+      const a = P[i], ra = pouchSide(a) * Math.sqrt(a.left) * 0.6;   // 消化中のものは小さくなった分だけ詰まる
+      const d0 = Math.hypot(a.lx, a.ly) || 1, minD = r * 0.55 + ra * 0.6;
+      if (d0 < minD) { a.lx *= minD / d0; a.ly *= minD / d0; }
+      if (a.ly * a.cheek < r * 0.3) a.ly = a.cheek * r * 0.3;
+      for (let j = i + 1; j < P.length; j++) {
+        const b = P[j];
+        if (b.cheek !== a.cheek) continue;
+        let dx = b.lx - a.lx, dy = b.ly - a.ly, d = Math.hypot(dx, dy);
+        const min = ra + pouchSide(b) * Math.sqrt(b.left) * 0.6;
+        if (d >= min) continue;
+        if (d < 1e-3) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; d = Math.hypot(dx, dy); }
+        const push = (min - d) / 2;
+        dx /= d; dy /= d;
+        a.lx -= dx * push; a.ly -= dy * push; b.lx += dx * push; b.ly += dy * push;
+      }
+    }
+  }
+}
+
+// ---------------- 更新 ----------------
+function update(dt) {
+  clock += dt;
+  if (started && !cleared) time += dt;
+
+  // 進む向き（ix, iy）と強さ（mag：0〜1）。キーボードが優先、押していなければマウス・タッチ
+  let ix = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+  let iy = (input.down ? 1 : 0) - (input.up ? 1 : 0), mag = 0;
+  if (ix || iy) { const l = Math.hypot(ix, iy); ix /= l; iy /= l; mag = 1; }
+  else [ix, iy, mag] = pointerSteer();
+  if (mag > 0) started = true;
+  ham.ix = ix; ham.iy = iy;
+  const speed = C.MOVE_SPEED + C.MOVE_SPEED_PER_BODY * ham.body;
+  const k = 1 - Math.exp(-dt * (mag > 0 ? C.ACCEL : C.DECEL));   // 少しの加速・減速
+  ham.vx += (ix * mag * speed - ham.vx) * k; ham.vy += (iy * mag * speed - ham.vy) * k;
+  ham.x += ham.vx * dt; ham.y += ham.vy * dt;
+  ham.r += (px(ham.body) / 2 - ham.r) * (1 - Math.exp(-dt * 5));
+  ham.x = clamp(ham.x, ham.r, C.FIELD_W - ham.r);
+  ham.y = clamp(ham.y, ham.r, C.FIELD_H - ham.r);
+  if (mag > 0.03) {
+    const a = Math.atan2(iy, ix);
+    ham.face += Math.atan2(Math.sin(a - ham.face), Math.cos(a - ham.face)) * (1 - Math.exp(-dt * 12));
+  }
+  if (ham.pulse > 0) ham.pulse = Math.max(0, ham.pulse - dt / 0.5);
+  // 食べたときの弾み・頬袋のぽよん（ばね）
+  ham.sqV += (-300 * ham.sq - 11 * ham.sqV) * dt; ham.sq = clamp(ham.sq + ham.sqV * dt, -0.45, 0.55);
+  // カメラ：ハムスターが画面の真ん中あたり（CAM_DEADZONE）にいる間は動かさず、外に出たときだけゆっくりついていく。体が育つほど引いていく
+  cam.zoom += (zoomFor(ham.body) - cam.zoom) * (1 - Math.exp(-dt * 1.5));
+  const top = C.MOVE_SPEED + C.MOVE_SPEED_PER_BODY * ham.body;
+  for (const [a, size, FS] of [['x', view.w / view.VS, C.FIELD_W], ['y', view.h / view.VS, C.FIELD_H]]) {
+    const kc = 1 - Math.exp(-dt * Math.max(C.CAM_FOLLOW, top / (size * 0.1)));
+    const p = ham[a], zone = size * C.CAM_DEADZONE / 2, edge = Math.max(0, size / 2 - ham.r - 12);
+    let c = cam[a], d = p - c;
+    if (Math.abs(d) > zone) c += (d - Math.sign(d) * zone) * kc;
+    d = p - c;
+    if (Math.abs(d) > edge) c = p - Math.sign(d) * edge;                  // 画面の外には出さない
+    cam[a] = FS > size ? clamp(c, size / 2, FS - size / 2) : FS / 2;      // 広場の外は映さない
+  }
+  if (clock - mus.grooveAt > C.GROOVE_HOLD) mus.groove = Math.max(0, mus.groove - dt * C.GROOVE_FADE);   // 果物のベースの層：だんだん薄く
+  // 足りない方の物が呼ぶ（音楽モードでは拍に合わせて背景の中で鳴る）
+  if ((ham.callScan -= dt) <= 0) { ham.callScan = 0.3; scanCallers(); }
+  if (AC && soundMode !== 'music') pumpQueue(AC.currentTime);   // 効果音モード：並べた音を順に鳴らす（音楽モードは音楽の刻みの中で鳴らす）
+  for (const c of ['-1', '1']) { const w = ham.cheekW[c]; w[1] += (-260 * w[0] - 9 * w[1]) * dt; w[0] = clamp(w[0] + w[1] * dt, -0.3, 0.5); }
+  shake = Math.max(0, shake - dt * C.SHAKE_DECAY);
+
+  for (const f of foods) {
+    f.edible = canEat(f);
+    if (f.born < 1) f.born = Math.min(1, f.born + dt / 0.35);
+    if (f.flash > 0) f.flash -= dt;
+    if (f.pop > 0) f.pop = Math.max(0, f.pop - dt / 0.45);
+    if (f.reviveIn > 0 && (f.reviveIn -= dt) <= 0) {        // 取れるようになった物に、色がぱっと戻る
+      f.revive = 1; f.flash = 1.8; f.pop = 1;
+      rings.push({ x: f.x, y: f.y, r0: f.w * 0.6, grow: 16 + f.w * 0.5, t: 0, life: 0.35, width: 3, color: '255,245,170' });
+    }
+    if (f.revive > 0) f.revive = Math.max(0, f.revive - dt / 0.3);
+    f.dim = !f.edible || f.reviveIn > 0 ? 1 : f.revive;
+    if (f.shake > 0) f.shake -= dt;
+    if (f.msgCd > 0) f.msgCd -= dt;
+    if (f.hitCd > 0) f.hitCd -= dt;
+  }
+  // 大岩が食べられるようになったら、音楽が盛り上がる展開へ
+  const goalNow = !cleared && foods.some(f => f.boulder && f.edible);
+  if (goalNow && !mus.goal) musicGoal();
+  mus.goal = goalNow;
+  keepGaps(dt);
+  for (let pass = 0; pass < 2; pass++) {   // 2つの物に同時に触れていても、両方から押し出す
+    for (const f of foods) if (!f.edible && f.born >= 1) collide(f);
+    ham.x = clamp(ham.x, ham.r, C.FIELD_W - ham.r);
+    ham.y = clamp(ham.y, ham.r, C.FIELD_H - ham.r);
+  }
+
+  ham.eatCd -= dt;
+  if (eatMode === 'A' && (input.eatQueued || (input.eat && ham.eatCd <= 0))) {
+    input.eatQueued = false; ham.eatCd = C.EAT_INTERVAL; tryEat();
+  }
+  input.eatQueued = false;
+  // 触れた瞬間に食べる（A：十分小さい物だけ ／ B：食べられる物は全部）
+  if (!cleared) {
+    for (const f of foods.slice()) {
+      if (f.born < 1 || f.suck || !(eatMode === 'B' ? f.edible : canTouchEat(f)) || rectDist(f, ham.x, ham.y) >= ham.r) continue;
+      if (fill() >= capacity()) break;
+      eat(f);
+    }
+  }
+  suckFoods(dt, !cleared);               // 吸い寄せ
+  // 消化：頬袋に入ったものを、古いものから少しずつ消化する（動きながら進む）
+  if (!cleared) {
+    let budget = C.DIGEST_SPEED * ham.body * dt * (fill() >= capacity() ? C.DIGEST_FULL_BOOST : 1);
+    while (budget > 0) {
+      const it = ham.pouch.find(p => p.landed);
+      if (!it) break;
+      const rest = it.s * it.left;
+      if (budget >= rest) { budget -= rest; digestItem(it); }
+      else { it.left -= budget / it.s; budget = 0; }
+    }
+  }
+  // 伸びた量は、ある程度たまったらまとめて表示して、きらきらの音を鳴らす
+  if ((ham.gainCd -= dt) <= 0 && ham.gainB / ham.body + ham.gainT / ham.teeth >= C.GROW_FX_STEP) {
+    const top = ham.y - ham.r - 14;
+    if (ham.gainB > 0.004) say(`体 +${ham.gainB.toFixed(2)}`, ham.x, top - 16, '#ffb35c', 13);
+    if (ham.gainT > 0.004) say(`歯 +${ham.gainT.toFixed(2)}`, ham.x, top, '#cfe6ff', 13);
+    sfxGrow(ham.gainB / ham.body, ham.gainT / ham.teeth);
+    ham.gainB = ham.gainT = 0; ham.gainCd = 0.8;
+  }
+  // R の長押し：最初からやり直し
+  if (input.rHeld) {
+    input.rTime += dt;
+    if (input.rTime >= C.R_HOLD_SEC) { input.rHeld = false; reset(); }
+  }
+
+  for (const it of ham.pouch) {
+    if (it.fly < 1) it.fly = Math.min(1, it.fly + dt / 0.16);
+    if (it.fly >= 1 && !it.landed) {   // 頬袋に着いた瞬間、ぽよんと揺れる
+      it.landed = true;
+      ham.cheekW[it.cheek][1] += 2.2 + 6 * clamp(pouchSide(it) / ham.r, 0, 1.6);
+    }
+  }
+  relaxPouch(dt);
+
+  for (let i = respawns.length - 1; i >= 0; i--) {
+    const r = respawns[i];
+    if ((r.t -= dt) <= 0) { respawns.splice(i, 1); respawnFood(r); }
+  }
+  for (const m of floats) m.t += dt;
+  floats = floats.filter(m => m.t < m.life);
+  for (const g of rings) g.t += dt;
+  rings = rings.filter(g => g.t < g.life);
+  for (const k of sparks) k.t += dt;
+  sparks = sparks.filter(k => k.t < k.life);
+}
+
+// ---------------- マウス・タッチの操作 ----------------
+const toWorld = (sx, sy) => [(sx - view.ox) / view.VS, (sy - view.oy) / view.VS];
+// 目標に向かう向きと強さ。近づくほど弱くして、ゆっくり止まる
+function seek(tx, ty, rest) {
+  const dx = tx - ham.x, dy = ty - ham.y, d = Math.hypot(dx, dy);
+  if (d < 1.5) return [0, 0, 0];
+  return [dx / d, dy / d, clamp((rest ?? d) / (C.CHASE_SLOW + ham.r), 0, 1)];
+}
+function pointerSteer() {                             // 追いかけ：押している間（指を置いている間）、その位置へ。近づくと、ゆっくり止まる
+  if (!ptr.down) return [0, 0, 0];
+  const [tx, ty] = toWorld(ptr.sx, ptr.sy);
+  return seek(tx, ty);
+}
+// 吸い寄せ：近くの食べられる物が、小さくなりながら口へすーっと飛んできて、口に届いたら食べる（大岩は触れたときだけ）
+const suckRange = () => Math.max(C.SUCK_MIN, ham.r * (touchUI ? C.SUCK_RANGE_TOUCH : C.SUCK_RANGE));
+function suckFoods(dt, start) {
+  let inflight = 0;
+  for (const f of foods) if (f.suck) inflight += f.s;
+  if (start) {
+    const range = suckRange();
+    for (const f of foods) {
+      if (f.suck || f.boulder || f.born < 1 || !(eatMode === 'B' ? f.edible : canTouchEat(f))) continue;
+      if (rectDist(f, ham.x, ham.y) - ham.r > range) continue;
+      if (fill() + inflight >= capacity()) break;        // 頬袋がいっぱいなら吸わない
+      f.suck = { t: 0, x0: f.x, y0: f.y }; inflight += f.s;
+    }
+  }
+  const mx = ham.x + Math.cos(ham.face) * ham.r * 0.75, my = ham.y + Math.sin(ham.face) * ham.r * 0.75;   // 口
+  for (const f of foods.slice()) {
+    if (!f.suck) continue;
+    const p = Math.min(1, (f.suck.t += dt) / C.SUCK_TIME), e = p * p;   // だんだん速く
+    f.x = lerp(f.suck.x0, mx, e); f.y = lerp(f.suck.y0, my, e);
+    if (p >= 1) eat(f);
+  }
+}
+
+// ---------------- 描画 ----------------
+
+function render() {
+  // 細かさ：スマホは2倍まで、動きが重いときは1倍にして軽くする
+  const dpr = Math.min(window.devicePixelRatio || 1, lowFx ? 1 : touchUI ? 2 : 3), W = innerWidth, H = innerHeight;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) {
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#2b2b2b'; ctx.fillRect(0, 0, W, H);
+  ctx.font = `13px ${FONT}`;
+  const compact = touchUI || H < 520 || W < 760 + ctx.measureText(modeText()).width;   // スマホや小さな窓：上の表示を詰める
+  ctx.font = `12px ${FONT}`;
+  // 下の案内：スマホでは、隅のボタンの間に収まればそこへ、収まらなければボタンの上へ
+  const padW = touchUI ? (padL.offsetWidth || 0) + (padR.offsetWidth || 0) + 32 : 0, between = touchUI && W - padW >= 240;
+  const help = wrapText(helpParts(), between ? W - padW : W - 24), LH = compact ? 15 : 18;
+  const TOP = compact ? (touchUI ? 46 : 64) : 64, PAD = compact ? 6 : 10;
+  const BOTTOM = !touchUI ? help.length * LH + 8 : between ? Math.max(52, help.length * LH + 12) : help.length * LH + 56;
+  // カメラ：体が小さいうちはハムスターの周りに寄り、育つほど引いて、最後は広場全体が見える
+  //   画面の縦横比が広場と大きくちがうとき（スマホなど）は、広場全体を小さく収めず、少し寄せて見やすくする
+  const ax = PAD, ay = TOP, aw = Math.max(1, W - PAD * 2), ah = Math.max(1, H - TOP - BOTTOM - PAD);
+  const full = Math.min(aw / C.FIELD_W, ah / C.FIELD_H), cover = Math.max(aw / C.FIELD_W, ah / C.FIELD_H);
+  const VS = full * Math.max(1, Math.sqrt(cover / full / 1.3)) * cam.zoom * (touchUI ? C.CAM_ZOOM_TOUCH : 1);
+  const hw = aw / 2 / VS, hh = ah / 2 / VS;
+  const cx = C.FIELD_W > hw * 2 ? clamp(cam.x, hw, C.FIELD_W - hw) : C.FIELD_W / 2;
+  const cy = C.FIELD_H > hh * 2 ? clamp(cam.y, hh, C.FIELD_H - hh) : C.FIELD_H / 2;
+  const sx = shake * Math.sin(clock * 71), sy = shake * Math.cos(clock * 53);   // 画面の揺れ
+  const ox = ax + aw / 2 - cx * VS + sx, oy = ay + ah / 2 - cy * VS + sy;
+  Object.assign(view, { VS, ox, oy, x0: ax, y0: ay, w: aw, h: ah });
+  ctx.save();
+  ctx.beginPath(); ctx.rect(ax, ay, aw, ah); ctx.clip();
+  ctx.setTransform(dpr * VS, 0, 0, dpr * VS, dpr * ox, dpr * oy);
+
+  ctx.fillStyle = '#a9c79a'; ctx.fillRect(0, 0, C.FIELD_W, C.FIELD_H);
+  ctx.strokeStyle = '#6d8a5f'; ctx.lineWidth = 3; ctx.strokeRect(0, 0, C.FIELD_W, C.FIELD_H);
+
+  drawFoods();
+  drawHamster();
+  drawLabels((compact ? 12 : 14) / VS);     // 文字は、寄っても引いても画面の上で同じ大きさにする
+  if (input.rHeld && input.rTime > 0.12) {
+    const p = clamp(input.rTime / C.R_HOLD_SEC, 0, 1), rr = ham.r + 12 / VS;
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 4 / VS;
+    ctx.beginPath(); ctx.arc(ham.x, ham.y, rr, -Math.PI / 2, -Math.PI / 2 + p * TAU); ctx.stroke();
+    ctx.font = `bold ${13 / VS}px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillStyle = '#fff';
+    ctx.fillText('最初から…', ham.x, ham.y - rr - 6 / VS);
+  }
+  for (const g of rings) {
+    if (g.t < 0) continue;
+    const p = g.t / g.life, e = 1 - (1 - p) * (1 - p);
+    ctx.strokeStyle = `rgba(${g.color},${1 - p})`; ctx.lineWidth = g.width * (1 - p * 0.5);
+    ctx.beginPath(); ctx.arc(g.x, g.y, g.r0 + e * g.grow, 0, TAU); ctx.stroke();
+  }
+  for (const k of sparks) {          // 宝石のかたまりを食べ切ったときの、きらっ
+    if (k.t < 0) continue;
+    const p = k.t / k.life, e = 1 - (1 - p) * (1 - p);
+    ctx.globalAlpha = 1 - p * p;
+    sparkle(k.x, k.y, k.s * (0.5 + 0.7 * Math.sin(Math.min(1, p * 1.6) * Math.PI / 2)));
+    for (let i = 0; i < 5; i++) { const a = i / 5 * TAU + 0.4, r = k.s * (0.6 + 1.2 * e); sparkle(k.x + Math.cos(a) * r, k.y + Math.sin(a) * r, k.s * 0.28 * (1 - p)); }
+    ctx.strokeStyle = `rgba(200,250,255,${1 - p})`; ctx.lineWidth = 3 / VS;
+    ctx.beginPath(); ctx.arc(k.x, k.y, k.s * (0.6 + 1.6 * e), 0, TAU); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const m of floats) {
+    const p = m.t / m.life;
+    ctx.globalAlpha = 1 - p * p;
+    ctx.font = `bold ${(m.size + 1) / VS}px ${FONT}`;
+    ctx.lineWidth = 4 / VS; ctx.strokeStyle = 'rgba(0,0,0,0.65)';
+    ctx.strokeText(m.text, m.x, m.y - p * 30 / VS);
+    ctx.fillStyle = m.color; ctx.fillText(m.text, m.x, m.y - p * 30 / VS);
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+  drawBoulderMarker();
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawHUD(W, H, compact, help, LH, between ? ((padL.offsetWidth || 0) + 16 + W - (padR.offsetWidth || 0) - 16) / 2 : W / 2, between ? 0 : touchUI ? 50 : 0);
+  if (touchUI && (!AC || AC.state !== 'running') && !cleared) {      // スマホ：画面に触れるまで音を出せない
+    ctx.font = `600 14px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; const tw = ctx.measureText('画面に触れると音が鳴ります').width + 24;
+    ctx.fillRect(W / 2 - tw / 2, ay + ah - 40, tw, 28);
+    ctx.fillStyle = '#fff'; ctx.fillText('画面に触れると音が鳴ります', W / 2, ay + ah - 26);
+  }
+  if (cleared) drawClear(W, H);
+}
+
+// 食べ物を1つ描く（x, y が中心、w が一辺）。当たり判定は四角のまま、見た目だけ変える
+//   dim：0＝鮮やか（いま取れる）… 1＝色を抜いて暗く（いまは取れない）
+const H = (h, s, l, dim = 0) => `hsl(${h},${s * (1 - 0.9 * dim)}%,${l * (1 - 0.35 * dim)}%)`;
+function paintFood(f, x, y, w, dim = 0) {
+  if (f.look === 'gem') return paintGem(f, x, y, w, dim);
+  if (f.look === 'soft') return paintFruit(f, x, y, w, dim);
+  if (f.look === 'shell') return paintShell(f, x, y, w, dim);
+  if (f.look === 'nut') return paintNut(f, x, y, w, dim);
+  return paintBoulder(f, x, y, w, dim);
+}
+function sparkle(cx, cy, s) {     // 4本の光のきらっ
+  ctx.fillStyle = 'rgba(255,255,255,0.95)';
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s); ctx.lineTo(cx + s * 0.18, cy - s * 0.18); ctx.lineTo(cx + s, cy); ctx.lineTo(cx + s * 0.18, cy + s * 0.18);
+  ctx.lineTo(cx, cy + s); ctx.lineTo(cx - s * 0.18, cy + s * 0.18); ctx.lineTo(cx - s, cy); ctx.lineTo(cx - s * 0.18, cy - s * 0.18);
+  ctx.closePath(); ctx.fill();
+}
+const twinkle = (f, speed, len) => { if (lowFx) return 0; const ph = (clock * speed + f.seed) % 1; return ph < len ? Math.sin(ph / len * Math.PI) : 0; };   // ときどき、きらっ（軽くするときは出さない）
+// 丸い光沢のグラデーション（軽くするときは、まん中の色でぬるだけ）
+function shade(x0, y0, r0, x1, y1, r1, stops) {
+  if (lowFx) return stops[Math.floor(stops.length / 2)][1];
+  const g = ctx.createRadialGradient(x0, y0, r0, x1, y1, r1);
+  for (const [p, c] of stops) g.addColorStop(p, c);
+  return g;
+}
+function paintGem(f, x, y, w, dim) {   // 硬い物：カットした宝石（硬いほど青から紫へ）
+  const hue = lerp(168, 292, clamp((f.h - 1) / 8.5, 0, 1)), h2 = w / 2, i2 = w * 0.24;
+  ctx.fillStyle = H(hue, 62, 36, dim); ctx.fillRect(x - h2, y - h2, w, w);
+  ctx.fillStyle = H(hue, 78, 60, dim);    // 上の面（明るい）
+  ctx.beginPath(); ctx.moveTo(x - h2, y - h2); ctx.lineTo(x + h2, y - h2); ctx.lineTo(x + i2, y - i2); ctx.lineTo(x - i2, y - i2); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = H(hue, 70, 48, dim);    // 左の面
+  ctx.beginPath(); ctx.moveTo(x - h2, y - h2); ctx.lineTo(x - i2, y - i2); ctx.lineTo(x - i2, y + i2); ctx.lineTo(x - h2, y + h2); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = H(hue, 85, 74, dim); ctx.fillRect(x - i2, y - i2, i2 * 2, i2 * 2);   // まん中の面
+  ctx.fillStyle = `rgba(255,255,255,${0.75 * (1 - 0.7 * dim)})`; ctx.fillRect(x - i2 * 0.8, y - i2 * 0.8, i2 * 0.6, i2 * 0.6);
+  if (dim < 0.3) { const k = twinkle(f, 0.5, 0.14); if (k) sparkle(x - i2 * 0.4, y - i2 * 0.4, k * Math.max(5, w * 0.6)); }
+}
+function paintFruit(f, x, y, w, dim) { // やわらかい物：つやつやの果物（小さいと黄色、大きいほど赤い）
+  const hue = lerp(44, -16, clamp((f.s - 1.3) / 8.1, 0, 1)), h2 = w / 2, rr = w * 0.34;
+  ctx.fillStyle = shade(x - w * 0.18, y - w * 0.2, w * 0.05, x, y, w * 0.72, [[0, H(hue, 100, 74, dim)], [0.55, H(hue, 92, 56, dim)], [1, H(hue, 85, 40, dim)]]);
+  ctx.beginPath(); ctx.roundRect(x - h2, y - h2, w, w, rr); ctx.fill();
+  if (dim < 0.5) { ctx.lineWidth = 1.2; ctx.strokeStyle = 'rgba(110,40,15,0.6)'; ctx.stroke(); }
+  ctx.fillStyle = `rgba(255,255,255,${0.8 * (1 - 0.7 * dim)})`;                      // つや
+  ctx.beginPath(); ctx.ellipse(x - w * 0.2, y - w * 0.2, w * 0.16, w * 0.09, -0.6, 0, TAU); ctx.fill();
+  ctx.fillStyle = H(115, 45, 42, dim);                                             // 葉っぱ
+  ctx.beginPath(); ctx.ellipse(x + w * 0.12, y - h2 - w * 0.02, w * 0.17, w * 0.07, -0.5, 0, TAU); ctx.fill();
+  ctx.strokeStyle = H(30, 52, 28, dim); ctx.lineWidth = Math.max(1, w * 0.05);    // へた
+  ctx.beginPath(); ctx.moveTo(x, y - h2 + w * 0.08); ctx.lineTo(x - w * 0.02, y - h2 - w * 0.1); ctx.stroke();
+  if (dim < 0.3) { const k = twinkle(f, 0.5, 0.14); if (k) sparkle(x - w * 0.2, y - w * 0.2, k * Math.max(5, w * 0.5)); }
+}
+function paintNut(f, x, y, w, dim) {   // 両方伸びる物（種など）：どんぐり（大きいほど濃い茶色）
+  const hue = lerp(34, 22, clamp((f.s - 1) / 7.5, 0, 1)), h2 = w / 2;
+  const nutPath = () => { ctx.beginPath(); ctx.roundRect(x - h2 * 0.9, y - h2 * 0.5, w * 0.9, h2 * 1.5, [w * 0.12, w * 0.12, w * 0.42, w * 0.42]); };
+  ctx.fillStyle = shade(x - w * 0.15, y + w * 0.02, w * 0.04, x, y + w * 0.12, w * 0.62, [[0, H(hue, 80, 68, dim)], [1, H(hue, 62, 36, dim)]]);
+  nutPath(); ctx.fill();                                                           // 実
+  if (dim < 0.5) { ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(60,30,10,0.55)'; ctx.stroke(); }
+  ctx.fillStyle = H(28, 45, 27, dim); ctx.beginPath(); ctx.roundRect(x - h2, y - h2, w, h2 * 0.8, w * 0.2); ctx.fill();   // 帽子
+  ctx.strokeStyle = H(28, 40, 45, dim); ctx.lineWidth = Math.max(0.8, w * 0.05);  // 帽子のもよう
+  ctx.beginPath();
+  for (let i = 1; i < 4; i++) { const xx = x - h2 + (w * i) / 4; ctx.moveTo(xx - w * 0.06, y - h2 + w * 0.08); ctx.lineTo(xx + w * 0.06, y - h2 + w * 0.3); }
+  ctx.stroke();
+  ctx.strokeStyle = H(30, 52, 24, dim); ctx.lineWidth = Math.max(1, w * 0.07);    // へた
+  ctx.beginPath(); ctx.moveTo(x, y - h2); ctx.lineTo(x + w * 0.05, y - h2 - w * 0.12); ctx.stroke();
+  ctx.fillStyle = `rgba(255,255,255,${0.7 * (1 - 0.7 * dim)})`;                      // つや
+  ctx.beginPath(); ctx.ellipse(x - w * 0.18, y + w * 0.08, w * 0.1, w * 0.06, -0.5, 0, TAU); ctx.fill();
+  if (dim < 0.3) { const k = twinkle(f, 0.45, 0.12); if (k) sparkle(x - w * 0.18, y + w * 0.08, k * Math.max(5, w * 0.45)); }
+}
+function paintShell(f, x, y, w, dim) { // 硬い殻に入ったごちそう：割れ目から金色の中身が見える
+  const h2 = w / 2, i2 = w * 0.27;
+  ctx.fillStyle = H(28, 56, 31, dim); ctx.fillRect(x - h2, y - h2, w, w);
+  ctx.strokeStyle = H(25, 64, 18, dim); ctx.lineWidth = Math.max(1, w * 0.07);
+  ctx.beginPath();
+  ctx.moveTo(x - h2 * 0.8, y - h2 * 0.55); ctx.lineTo(x - h2 * 0.35, y - h2 * 0.8);
+  ctx.moveTo(x + h2 * 0.45, y + h2 * 0.85); ctx.lineTo(x + h2 * 0.85, y + h2 * 0.4);
+  ctx.stroke();
+  ctx.fillStyle = H(43, 100, 64, dim); ctx.fillRect(x - i2, y - i2 * 0.75, i2 * 2, i2 * 1.5);
+  ctx.fillStyle = H(50, 100, 85, dim); ctx.fillRect(x - i2 * 0.7, y - i2 * 0.5, i2 * 0.7, i2 * 0.45);
+  if (dim < 0.3) { const k = twinkle(f, 0.4, 0.16); if (k) sparkle(x + i2 * 0.4, y - i2 * 0.3, k * Math.max(5, w * 0.45)); }
+}
+function paintBoulder(f, x, y, w, dim) {   // 大岩：金の筋が光る、他とは違う大きな岩。目標なので暗くしすぎない
+  const h2 = w / 2, dd = dim * 0.3;
+  ctx.fillStyle = H(228, 12, 50, dd); ctx.fillRect(x - h2, y - h2, w, w);
+  ctx.fillStyle = H(228, 12, 64, dd);
+  ctx.beginPath(); ctx.moveTo(x - h2, y - h2); ctx.lineTo(x + h2, y - h2); ctx.lineTo(x + h2 * 0.45, y - h2 * 0.35); ctx.lineTo(x - h2 * 0.55, y - h2 * 0.45); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = H(228, 12, 38, dd);
+  ctx.beginPath(); ctx.moveTo(x + h2, y - h2); ctx.lineTo(x + h2, y + h2); ctx.lineTo(x - h2, y + h2); ctx.lineTo(x + h2 * 0.2, y + h2 * 0.3); ctx.lineTo(x + h2 * 0.45, y - h2 * 0.35); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = `rgba(255,212,80,${0.55 + 0.35 * Math.sin(clock * 2.2)})`; ctx.lineWidth = Math.max(2, w * 0.045);   // 金の筋
+  ctx.beginPath();
+  ctx.moveTo(x - h2 * 0.85, y + h2 * 0.15); ctx.lineTo(x - h2 * 0.35, y - h2 * 0.1); ctx.lineTo(x + h2 * 0.1, y + h2 * 0.25); ctx.lineTo(x + h2 * 0.75, y - h2 * 0.3);
+  ctx.moveTo(x - h2 * 0.25, y + h2 * 0.75); ctx.lineTo(x + h2 * 0.1, y + h2 * 0.25);
+  ctx.stroke();
+  const k = twinkle(f, 0.35, 0.2); if (k) sparkle(x + h2 * 0.1, y + h2 * 0.25, k * w * 0.28);
+  ctx.strokeStyle = H(228, 12, 28, dd); ctx.lineWidth = Math.max(1.5, w * 0.025); ctx.strokeRect(x - h2, y - h2, w, w);
+}
+
+function drawFoods() {
+  const beat = beatPhase(), callers = new Set(ham.callers), VS = view.VS;
+  const callA = 0.55 + 0.45 * ham.callStr, callCol = ham.callKind === 'hard' ? '150,245,255' : '255,205,95';
+  for (const f of foods) {
+    const calling = callers.has(f);                     // 足りない方の物：拍に合わせて大きく弾んで、明るく光る
+    const k = (1 - Math.pow(1 - f.born, 3)) * (1 + 0.35 * Math.sin((f.pop || 0) * Math.PI)) * (calling ? 1 + (0.2 + 0.25 * ham.callStr) * Math.pow(1 - beat, 3) : 1) * (f.suck ? 1 - 0.65 * Math.pow(Math.min(1, f.suck.t / C.SUCK_TIME), 1.5) : 1), w = f.w * k;   // 吸い込まれる物は小さくなる
+    const x = f.x + (f.shake > 0 ? Math.sin(clock * 90) * 3 * (f.shake / 0.25) : 0), y = f.y, dim = f.dim ?? 0;
+    if (calling && !lowFx) {                             // 物のうしろの、やわらかい光
+      const gr = w * 0.6 + 30 / VS, g = ctx.createRadialGradient(x, y, w * 0.2, x, y, gr);
+      g.addColorStop(0, `rgba(${callCol},${0.55 * callA * (0.45 + 0.55 * Math.pow(1 - beat, 2))})`); g.addColorStop(1, `rgba(${callCol},0)`);
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, gr, 0, TAU); ctx.fill();
+    }
+    if (f.boulder && !lowFx) {                           // 大岩：いつも淡く光っている
+      const a = 0.24 + 0.08 * Math.sin(clock * 2.2), g = ctx.createRadialGradient(x, y, w * 0.3, x, y, w * 1.1);
+      g.addColorStop(0, `rgba(255,222,120,${a})`); g.addColorStop(1, 'rgba(255,222,120,0)');
+      ctx.fillStyle = g; ctx.fillRect(x - w * 1.1, y - w * 1.1, w * 2.2, w * 2.2);
+    }
+    ctx.globalAlpha = 1 - (f.boulder ? 0.15 : 0.4) * dim;      // いま取れない物は、暗く少し半透明
+    paintFood(f, x, y, w, dim);
+    ctx.globalAlpha = 1;
+    if (dim < 0.5 && (f.look === 'gem' || f.look === 'shell')) { ctx.lineWidth = 1.2; ctx.strokeStyle = 'rgba(30,20,15,0.6)'; ctx.strokeRect(x - w / 2, y - w / 2, w, w); }
+    if (f.flash > 0) {
+      const p = ((1.8 - f.flash) % 0.6) / 0.6, g = 3 + p * 20;
+      ctx.strokeStyle = `rgba(255,240,120,${(1 - p)})`; ctx.lineWidth = 3.5;
+      ctx.strokeRect(x - w / 2 - g, y - w / 2 - g, w + g * 2, w + g * 2);
+    }
+    if (calling) for (let i = 0; i < (lowFx ? 1 : 2); i++) {   // 拍に合わせて広がる、太くて明るい輪（半拍ずらして2重）
+      const q = (beat + i * 0.5) % 1;
+      ctx.strokeStyle = `rgba(${callCol},${callA * Math.pow(1 - q, 1.6)})`; ctx.lineWidth = (6 - i * 2) / VS;
+      ctx.beginPath(); ctx.arc(x, y, w * 0.6 + (10 + q * 52) / VS, 0, TAU); ctx.stroke();
+    }
+    if (f.boulder && f.edible) {    // 大岩：大きさも歯も足りたら、拍に合わせて光る
+      const a = Math.pow(1 - beat, 2);
+      ctx.fillStyle = `rgba(255,240,150,${0.35 * a})`; ctx.fillRect(x - w / 2, y - w / 2, w, w);
+      for (let i = 0; i < 2; i++) {
+        const g = 6 + beat * 26 + i * 12;
+        ctx.strokeStyle = `rgba(255,225,80,${a * (0.9 - i * 0.4)})`; ctx.lineWidth = 4;
+        ctx.strokeRect(x - w / 2 - g, y - w / 2 - g, w + g * 2, w + g * 2);
+      }
+    }
+  }
+}
+
+function drawHamster() {
+  const r = ham.r * (1 + 0.18 * Math.sin(ham.pulse * Math.PI));
+  const cos = Math.cos(ham.face), sin = Math.sin(ham.face);
+  const spd = Math.min(1, Math.hypot(ham.vx, ham.vy) / (C.MOVE_SPEED + C.MOVE_SPEED_PER_BODY * ham.body));
+  const hop = C.WALK_HOP * ham.r * spd * Math.abs(Math.sin(clock * 8.5));   // 歩くとぴょこぴょこ跳ねる
+  ctx.save();
+  ctx.translate(ham.x, ham.y - hop);
+  // つぶしと伸ばし：食べた・ぶつかったときのばね（向き sqAng）と、歩いているときの伸び縮み（進む向き）
+  ctx.rotate(ham.sqAng); ctx.scale(1 - ham.sq, 1 + ham.sq * 0.85); ctx.rotate(-ham.sqAng);
+  const wob = C.WALK_WOBBLE * spd * Math.sin(clock * 17);
+  ctx.rotate(ham.face);
+  ctx.scale(1 + wob, 1 - wob * 0.8);
+
+  const items = ham.pouch.map(it => {
+    const w = 1 + ham.cheekW[it.cheek][0];               // ぽよん
+    let lx = it.lx * (1 + (w - 1) * 0.5), ly = it.ly * (1 + (w - 1) * 0.6), sz = pouchSide(it) * Math.sqrt(it.left) * w;   // 消化した分だけ小さくなる
+    if (it.fly < 1) {
+      const wx = it.fx - ham.x, wy = it.fy - ham.y, e = 1 - (1 - it.fly) * (1 - it.fly);
+      lx = lerp(wx * cos + wy * sin, lx, e); ly = lerp(-wx * sin + wy * cos, ly, e);
+      sz = lerp(it.w0 ?? it.w, sz, e);
+    }
+    return { it, lx, ly, sz };
+  });
+  const cheeks = [-1, 1].filter(c => ham.pouch.some(it => it.cheek === c && it.fly > 0.6));
+  const skin = extra => {
+    ctx.beginPath();
+    for (const c of cheeks) {
+      const ar = r * 0.42 * (1 + ham.cheekW[c][0]) + extra, ax = -r * 0.1, ay = c * r * 0.55;
+      ctx.moveTo(ax + ar, ay); ctx.arc(ax, ay, ar, 0, TAU);
+    }
+    for (const p of items) {
+      if (p.it.fly <= 0.6) continue;
+      const rr = p.sz * 0.75 + extra;
+      ctx.moveTo(p.lx + rr, p.ly); ctx.arc(p.lx, p.ly, rr, 0, TAU);
+    }
+    ctx.fill();
+  };
+  if (cheeks.length) {
+    ctx.fillStyle = '#5b3a1e'; skin(2);
+    ctx.fillStyle = '#f6cf9e'; skin(0);
+  }
+  for (const p of items) {
+    ctx.save(); ctx.translate(p.lx, p.ly); ctx.rotate(p.it.rot);
+    ctx.globalAlpha = 0.9; paintFood(p.it, 0, 0, p.sz);
+    ctx.globalAlpha = 1; ctx.strokeStyle = 'rgba(60,40,25,0.8)'; ctx.lineWidth = 1;
+    ctx.strokeRect(-p.sz / 2, -p.sz / 2, p.sz, p.sz);
+    ctx.restore();
+  }
+
+  // 体
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU);
+  ctx.fillStyle = '#e9a35b'; ctx.fill();
+  ctx.lineWidth = 2; ctx.strokeStyle = '#5b3a1e'; ctx.stroke();
+  // 歯（硬さで長くなる）
+  const tl = 1.5 + ham.teeth * 0.7, tw = Math.max(1.2, r * 0.12);
+  ctx.fillStyle = '#fffdf0'; ctx.strokeStyle = '#5b3a1e'; ctx.lineWidth = 0.8;
+  ctx.fillRect(r * 0.8, -tw, tl + r * 0.15, tw * 0.9); ctx.strokeRect(r * 0.8, -tw, tl + r * 0.15, tw * 0.9);
+  ctx.fillRect(r * 0.8, tw * 0.1, tl + r * 0.15, tw * 0.9); ctx.strokeRect(r * 0.8, tw * 0.1, tl + r * 0.15, tw * 0.9);
+  // 目：白目と黒目。黒目は進みたい方向を見る（向きを変えるときは、体より先に目が向く）
+  const lx = ham.ix * cos + ham.iy * sin, ly = -ham.ix * sin + ham.iy * cos, look = ham.ix || ham.iy ? 1 : 0.4;
+  const er = Math.max(2.2, r * 0.25), pr = er * 0.58;
+  for (const s of [-1, 1]) {
+    const ex = r * 0.36, ey = s * r * 0.38;
+    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(ex, ey, er, 0, TAU); ctx.fill();
+    ctx.lineWidth = Math.max(0.6, r * 0.04); ctx.strokeStyle = '#5b3a1e'; ctx.stroke();
+    const qx = ex + (look === 1 ? lx : 0.4) * er * 0.42, qy = ey + (look === 1 ? ly : 0) * er * 0.42;
+    ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(qx, qy, pr, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(qx - pr * 0.35, qy - pr * 0.35, pr * 0.32, 0, TAU); ctx.fill();
+  }
+  ctx.fillStyle = '#e86a7a';
+  ctx.beginPath(); ctx.arc(r * 0.86, 0, Math.max(1, r * 0.1), 0, TAU); ctx.fill();
+  ctx.restore();
+}
+
+// 大岩が画面の外にあるときは、画面の端に小さな目印（大岩の方向）を出す
+function drawBoulderMarker() {
+  const b = foods.find(f => f.boulder);
+  if (!b) return;
+  const { VS, ox, oy, x0, y0, w, h } = view, bx = ox + b.x * VS, by = oy + b.y * VS, half = b.w * VS / 2;
+  if (bx + half > x0 && bx - half < x0 + w && by + half > y0 && by - half < y0 + h) return;   // 見えている
+  const cx = x0 + w / 2, cy = y0 + h / 2, dx = bx - cx, dy = by - cy, m = 24;
+  const k = Math.min((w / 2 - m) / Math.max(Math.abs(dx), 1e-6), (h / 2 - m) / Math.max(Math.abs(dy), 1e-6));
+  const mx = cx + dx * k, my = cy + dy * k, ang = Math.atan2(dy, dx);
+  const glow = b.edible ? Math.pow(1 - beatPhase(), 2) : 0.35 + 0.25 * Math.sin(clock * 3);
+  ctx.save(); ctx.translate(mx, my);
+  ctx.fillStyle = `rgba(255,225,90,${0.2 + 0.5 * glow})`; ctx.beginPath(); ctx.arc(0, 0, 15, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#8d909c'; ctx.fillRect(-7, -7, 14, 14);
+  ctx.strokeStyle = '#ffd95a'; ctx.lineWidth = 1.5; ctx.strokeRect(-7, -7, 14, 14);
+  ctx.rotate(ang); ctx.fillStyle = '#ffd95a';
+  ctx.beginPath(); ctx.moveTo(23, 0); ctx.lineTo(15, -6); ctx.lineTo(15, 6); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  ctx.font = `bold 11px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#ffe9a0';
+  ctx.fillText('大岩', mx - Math.cos(ang) * 30, my - Math.sin(ang) * 30);
+}
+
+function drawLabels(fs) {
+  const near = [];
+  for (const f of foods) {
+    if (f.born < 1 || f.suck) continue;
+    const d = f.boulder ? -1 : rectDist(f, ham.x, ham.y) - ham.r;
+    if (d < C.LABEL_RANGE) near.push([f, d]);
+  }
+  near.sort((a, b) => a[1] - b[1]);
+  ctx.font = `bold ${fs}px ${FONT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+  ctx.lineWidth = fs * 0.22; ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+  for (const [f] of near.slice(0, 7)) {
+    const parts = [];
+    if (f.boulder) parts.push(['大岩 ', '#222']);
+    parts.push(['大' + fmt(f.s), f.s > ham.body + EPS ? '#d81e10' : '#1f3b1f']);
+    parts.push([' 硬' + fmt(f.h), f.h > ham.teeth + EPS ? '#d81e10' : '#1f3b1f']);
+    let x = f.x - parts.reduce((a, p) => a + ctx.measureText(p[0]).width, 0) / 2;
+    const y = f.y - f.w / 2 - fs * 0.3;
+    for (const [t, c] of parts) {
+      ctx.strokeText(t, x, y); ctx.fillStyle = c; ctx.fillText(t, x, y);
+      x += ctx.measureText(t).width;
+    }
+  }
+}
+
+const MODE_NAME = { A: '食べ方A：Spaceで食べる（十分小さい物は触れるだけ）', B: '食べ方B：触れたら全部食べる' };
+const helpParts = () => touchUI ? ['大岩を食べたらクリア', '指を置いた方へ走る', 'そばの物は吸い寄せて食べる',
+  '果物→体　宝石→歯　どんぐり→両方', '暗い物＝まだ食べられない', '光る物＝いま足りない方'] :
+  ['目標：大岩を食べる（タイムアタック）', 'WASD / 矢印：移動', 'マウス：押している間、その方へ走る', MODE_NAME[eatMode], 'M：食べ方の切り替え', 'R：スタート地点へ（長押しで最初から）', 'N：音の切り替え（音楽／効果音）',
+  '- / =：全体の音量', '[ / ]：音楽の音量', ', / .：効果音の音量',
+  '消化は動きながら自動', 'そばの物は吸い寄せる', '果物 → 体が伸びる', '宝石 → 歯が伸びる', 'どんぐり → 両方',
+  '殻つき → 歯を鍛えると食べられる', '暗い物＝まだ食べられない', '拍に合わせて光る物＝いま足りない方', '宝石の列はテーマの旋律、かたまりは和音'];
+function wrapText(parts, maxW) {   // 横幅に収まるように区切りごとに折り返す
+  const lines = [''];
+  for (const p of parts) {
+    const cur = lines[lines.length - 1], next = cur ? cur + '　' + p : p;
+    if (cur && ctx.measureText(next).width > maxW) lines.push(p); else lines[lines.length - 1] = next;
+  }
+  return lines;
+}
+
+const modeText = () => `食べ方 ${eatMode}（${eatMode === 'B' ? '触れたら食べる' : 'Spaceで食べる'}）・M　　音 ${soundMode === 'music' ? '音楽' : '効果音'}・N`;
+function drawHUD(W, H, compact, help, LH, helpX, helpLift) {
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  const bar = (x, y, label, v, max, color, text, warn, lw, bw, fs) => {
+    ctx.font = `600 ${fs}px ${FONT}`; ctx.fillStyle = '#ddd'; ctx.fillText(label, x, y);
+    const bx = x + lw, bh = fs - 2;
+    ctx.fillStyle = '#444'; ctx.fillRect(bx, y - bh / 2, bw, bh);
+    ctx.fillStyle = color; ctx.fillRect(bx, y - bh / 2, bw * clamp(v / max, 0, 1), bh);
+    ctx.strokeStyle = warn ? '#ff6a5a' : '#888'; ctx.lineWidth = 1; ctx.strokeRect(bx, y - bh / 2, bw, bh);
+    ctx.fillStyle = '#fff'; ctx.fillText(text, bx + bw + 6, y);
+  };
+  const fl = fill(), cap = capacity(), full = fl >= cap;
+  const best = loadBest(eatMode), other = loadBest(eatMode === 'A' ? 'B' : 'A');
+  const modeTxt = modeText();
+  const bestTxt = `ベスト ${eatMode} ${best === null ? '--:--' : mmss(best)}　／　${eatMode === 'A' ? 'B' : 'A'} ${other === null ? '--:--' : mmss(other)}`;
+  const timeTxt = mmss(cleared ? clearTime : time);
+  if (compact) {                    // スマホ・小さな窓：2列に詰める
+    const cw = (W - 20) / 2, bw = clamp(cw - 28 - 78, 36, 170);
+    bar(10, 13, '体', ham.body, C.BOULDER[0], '#e9a35b', `${ham.body.toFixed(2)}/${fmt(C.BOULDER[0])}`, false, 28, bw, 12);
+    bar(10 + cw, 13, '歯', ham.teeth, C.BOULDER[1], '#dfe8f5', `${ham.teeth.toFixed(2)}/${fmt(C.BOULDER[1])}`, false, 28, bw, 12);
+    bar(10, 32, '頬袋', fl, cap, full ? '#ff9a6a' : '#f6cf9e', `${fl.toFixed(1)}/${cap.toFixed(1)}${full ? ' 満' : ''}`, full, 28, bw, 12);
+    ctx.font = `600 12px ${FONT}`; ctx.fillStyle = '#ddd';
+    ctx.fillText(`時間 ${timeTxt}　ベスト ${best === null ? '--:--' : mmss(best)}`, 10 + cw, 32);
+    if (!touchUI) { ctx.font = `12px ${FONT}`; ctx.fillStyle = '#bbb'; ctx.fillText(modeTxt, 10, 51); }   // スマホでは操作は隅のボタンに出る
+  } else {
+    bar(16, 20, '体の大きさ', ham.body, C.BOULDER[0], '#e9a35b', `${ham.body.toFixed(2)} / ${fmt(C.BOULDER[0])}`, false, 86, 170, 14);
+    bar(16, 44, '歯の硬さ', ham.teeth, C.BOULDER[1], '#dfe8f5', `${ham.teeth.toFixed(2)} / ${fmt(C.BOULDER[1])}`, false, 86, 170, 14);
+    bar(380, 20, '頬袋', fl, cap, full ? '#ff9a6a' : '#f6cf9e', `${fl.toFixed(1)} / ${cap.toFixed(1)}${full ? ' いっぱい' : ''}`, full, 86, 170, 14);
+    ctx.font = `600 14px ${FONT}`; ctx.fillStyle = '#ddd';
+    ctx.fillText(`時間 ${timeTxt}　食べた数 ${eatenCount}${BOT ? `　自動プレイ ×${SIM_SPEED}` : ''}`, 380, 44);
+    // 隅に小さく：いまの食べ方・音・操作と、ベスト記録
+    ctx.font = `13px ${FONT}`; ctx.fillStyle = '#bbb'; ctx.textAlign = 'right';
+    ctx.fillText(modeTxt, W - 16, 20); ctx.fillText(bestTxt, W - 16, 44);
+  }
+  ctx.textAlign = 'center'; ctx.font = `12px ${FONT}`; ctx.fillStyle = '#aaa';
+  const base = H - helpLift - (helpLift ? 4 : 0);
+  if (touchUI && !helpLift) help.forEach((l, i) => ctx.fillText(l, helpX, H - 8 - 19 - ((help.length - 1) / 2 - i) * LH));   // ボタンの間（ボタンの高さの真ん中にそろえる）
+  else help.forEach((l, i) => ctx.fillText(l, helpX, base - (help.length - i) * LH + LH / 2 - 2));
+}
+
+function drawClear(W, H) {
+  const ci = clearInfo || {}, bw = Math.min(460, W - 24), bh = 250;
+  ctx.fillStyle = 'rgba(0,0,0,0.82)'; ctx.fillRect(W / 2 - bw / 2, H / 2 - bh / 2, bw, bh);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff';
+  ctx.font = `bold 28px ${FONT}`; ctx.fillText('クリア！', W / 2, H / 2 - 92);
+  ctx.font = `bold 72px ${FONT}`; ctx.fillText(mmss(clearTime) + '.' + String(Math.floor(clearTime * 10) % 10), W / 2, H / 2 - 30);
+  if (ci.record) {                // 新記録は黄色でゆらゆら
+    ctx.save(); ctx.translate(W / 2, H / 2 + 30); const k = 1 + 0.06 * Math.sin(clock * 6); ctx.scale(k, k);
+    ctx.font = `bold 26px ${FONT}`; ctx.fillStyle = '#ffe14a'; ctx.fillText('新記録！', 0, 0); ctx.restore();
+  }
+  ctx.font = `600 16px ${FONT}`; ctx.fillStyle = '#ddd';
+  const bestLine = ci.best === null || ci.best === undefined ? 'ベスト --:--' : `ベスト ${mmss(ci.best)}${ci.record && ci.prev !== null ? `（前は ${mmss(ci.prev)}）` : ''}`;
+  ctx.fillText(`食べ方 ${ci.mode}　${bestLine}　食べた数 ${eatenCount}`, W / 2, H / 2 + 66);
+  ctx.font = `13px ${FONT}`; ctx.fillStyle = '#aaa';
+  if (ci.switched) ctx.fillText('途中で食べ方を切り替えたので、この回は記録に残しません', W / 2, H / 2 + 90);
+  ctx.fillText(touchUI ? '「最初から」でもう一度' : 'R でもう一度', W / 2, H / 2 + 110);
+}
+
+// ---------------- 入力 ----------------
+const KEYMAP = {
+  KeyW: 'up', ArrowUp: 'up', KeyS: 'down', ArrowDown: 'down',
+  KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right', Space: 'eat',
+};
+addEventListener('keydown', e => {
+  audioInit();
+  const k = KEYMAP[e.code];
+  if (k) {
+    e.preventDefault();
+    input[k] = true;
+    if (k === 'eat' && !e.repeat) { input.eatQueued = true; started = true; }
+  }
+  if (e.code === 'KeyR' && !e.repeat) { if (cleared) reset(); else { input.rHeld = true; input.rTime = 0; } }
+  if (e.code === 'KeyN' && !e.repeat) {
+    soundMode = soundMode === 'music' ? 'sfx' : 'music';
+    if (soundMode === 'music') musicStart(); else musicStop();
+    say(soundMode === 'music' ? '音：音楽' : '音：効果音', ham.x, ham.y - ham.r - 30, '#ffffff', 15);
+  }
+  if (e.code === 'KeyM' && !e.repeat && !touchUI) {   // スマホは食べ方Bで固定
+    eatMode = eatMode === 'A' ? 'B' : 'A';
+    if (started && !cleared) modeSwitched = true;
+    say(MODE_NAME[eatMode], ham.x, ham.y - ham.r - 30, '#ffffff', 15);
+  }
+  const vk = VOL_KEYS[e.key] || VOL_CODES[e.code];   // 音量：押した文字で決める（キーボードの並びがちがっても同じ文字なら同じ）
+  if (vk) { e.preventDefault(); changeVol(vk[0], vk[1]); }
+});
+const VOL_KEYS = { '-': ['all', -1], '_': ['all', -1], '=': ['all', 1], '+': ['all', 1], '[': ['music', -1], '{': ['music', -1], ']': ['music', 1], '}': ['music', 1],
+  ',': ['sfx', -1], '<': ['sfx', -1], '.': ['sfx', 1], '>': ['sfx', 1] };
+const VOL_CODES = { Minus: ['all', -1], Equal: ['all', 1], NumpadSubtract: ['all', -1], NumpadAdd: ['all', 1] };   // 日本語の配列で「^」を押したときも上げる
+addEventListener('keyup', e => {
+  const k = KEYMAP[e.code]; if (k) input[k] = false;
+  if (e.code === 'KeyR' && input.rHeld) { input.rHeld = false; warpToStart(); }   // 短く押した：スタート地点に戻るだけ
+});
+addEventListener('blur', () => { input.up = input.down = input.left = input.right = input.eat = input.rHeld = false; ptr.down = false; ptr.id = null; });
+
+// マウス・タッチ：追いかけ（押している間、その位置へ走る）
+cv.addEventListener('pointerdown', e => {
+  audioInit();
+  if (e.pointerType === 'touch' && !touchUI) setTouchUI();
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  if (ptr.id !== null && ptr.down) return;            // 2本目の指は使わない
+  ptr.id = e.pointerId; ptr.down = true; ptr.sx = e.clientX; ptr.sy = e.clientY;
+  try { cv.setPointerCapture(e.pointerId); } catch (err) { /* 試験用に作ったイベントなど */ }
+  e.preventDefault();
+});
+cv.addEventListener('pointermove', e => {
+  if (e.pointerId !== ptr.id || !ptr.down) return;
+  ptr.sx = e.clientX; ptr.sy = e.clientY;
+  e.preventDefault();
+});
+const ptrEnd = e => { if (e.pointerId === ptr.id) { ptr.down = false; ptr.id = null; } };
+cv.addEventListener('pointerup', ptrEnd);
+cv.addEventListener('pointercancel', ptrEnd);
+cv.addEventListener('contextmenu', e => e.preventDefault());
+// 指で操作しているときに、画面がスクロールしたり拡大されたりしないようにする
+document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+document.addEventListener('gesturestart', e => e.preventDefault());
+document.addEventListener('dblclick', e => e.preventDefault());
+// スマホのブラウザは、画面に触れるまで音を出せない：最初に触れたときに音を出せるようにする
+for (const ev of ['touchend', 'pointerup', 'click']) addEventListener(ev, () => audioInit(), { passive: true });
+
+// ---------------- スマホ用のボタン・音量の目盛り ----------------
+const padL = document.getElementById('padL'), padR = document.getElementById('padR'), volEl = document.getElementById('vol');
+const bReset = document.getElementById('bReset');
+let resetArm = 0, volHideAt = 0, volFocus = 'all';
+function setTouchUI() {
+  touchUI = true; padL.hidden = padR.hidden = false; volEl.classList.add('touch');
+  if (eatMode !== 'B') { eatMode = 'B'; if (started && !cleared) modeSwitched = true; }
+  updatePad();
+}
+document.getElementById('bWarp').onclick = () => { if (!cleared) warpToStart(); };
+bReset.onclick = () => {                               // 最初からやり直す：まちがえて押さないよう、もう一度押したらやり直す
+  if (cleared || resetArm > clock) { resetArm = 0; reset(); } else resetArm = clock + 2.5;
+  updatePad();
+};
+document.getElementById('bVol').onclick = () => { if (!volEl.hidden && volHideAt > performance.now()) volEl.hidden = true; else showVol(null); };
+function updatePad() {
+  if (!touchUI) return;
+  const arm = resetArm > clock && !cleared, rt = arm ? 'もう一度で最初から' : '最初から';
+  if (bReset.textContent !== rt) { bReset.textContent = rt; bReset.classList.toggle('arm', arm); }
+}
+// 音量：全体・音楽・効果音を 0〜10 の目盛りで。変えたら数秒だけ目盛りを出し、ブラウザに保存して次も同じ音量にする
+const VOL_ROWS = [['all', '全体', '- / ='], ['music', '音楽', '[ / ]'], ['sfx', '効果音', ', / .']];
+const volKey = 'hamster-volume';
+const vol = (() => {
+  const v = { ...C.VOLUME_START };
+  try { const s = JSON.parse(localStorage.getItem(volKey) || 'null'); for (const [k] of VOL_ROWS) if (Number.isInteger(s?.[k])) v[k] = clamp(s[k], 0, 10); } catch (e) { /* 保存できない開き方 */ }
+  return v;
+})();
+volEl.innerHTML = VOL_ROWS.map(([k, name, keys]) => `<div class="row" data-k="${k}"><span class="lab">${name}</span><button data-d="-1">−</button>` +
+  `<span class="bar">${'<i></i>'.repeat(10)}</span><button data-d="1">＋</button><span class="num"></span><span class="key">${keys}</span></div>`).join('');
+volEl.addEventListener('click', e => { const b = e.target.closest('button'); if (b) changeVol(b.closest('.row').dataset.k, +b.dataset.d); });
+function changeVol(k, d) {
+  audioInit();
+  vol[k] = clamp(vol[k] + d, 0, 10);
+  try { localStorage.setItem(volKey, JSON.stringify(vol)); } catch (e) { /* 保存できなくても、開いているあいだは効く */ }
+  applyVol();
+  if (k !== 'music' && AC) setTimeout(() => glass(midiHz(84), 0, 0.05), 40);   // 効果音の大きさが分かるように、小さく鳴らしてみる
+  showVol(k);
+}
+function showVol(k) {
+  volFocus = k; volEl.hidden = false;
+  volHideAt = performance.now() + (touchUI ? 5 : C.VOLUME_SHOW_SEC) * 1000;
+  for (const row of volEl.children) {
+    const v = vol[row.dataset.k];
+    row.classList.toggle('on', !k || row.dataset.k === k);
+    row.querySelectorAll('.bar i').forEach((el, i) => el.classList.toggle('f', i < v));
+    row.querySelector('.num').textContent = v;
+    row.querySelector('.key').hidden = touchUI;
+  }
+}
+
+// ---------------- 音（その場で合成） ----------------
+//   楽器：果物（大きさ）＝マリンバのような温かい音 ／ 宝石（硬さ）＝ベルやガラスのようなきらきらした音 ／ どんぐり（両方）＝両方を少しずつ
+//   取れない物に当たった音：木をコツンと叩くこもった音（大きさが足りない＝低い「コン」、歯が足りない＝高い「カッ」）
+//   効果音モード：食べた瞬間に鳴る。続けて食べると少しずつ間をあけて並べ、ドレミソラで1段ずつ上がり、間が空くと最初に戻る
+//   音楽モード：背景に静かなビートと4つの和音。食べた瞬間には音の高さのない小さな「ぷち」だけ鳴らし、
+//     音の高さのある音は8分音符・16分音符の刻みにそろえて、和音に合う高さで鳴らす
+//   宝石の列：食べるごとに8分音符で、テーマのメロディを一音ずつ。食べ切ると根音に着地して、次の拍の頭でバンドが応える（フィルとシンバル）
+//   宝石のかたまり：ほぼ同時に食べた音は、次の8分音符で1つの和音に。食べ切ると、花が開くような分散和音と低い根音、きらっ、バンドの応え
+//   果物：マリンバの2〜3音の短いフレーズ（16分音符の刻み）。硬い物はベルの一音
+//   音の行き先：背景の音楽は「音楽」の音量、それ以外は「効果音」の音量を通って、「全体」の音量へ
+let AC = null, master = null, musicBus = null, sfxBus = null, curBus = null, noiseBuf = null, soundMode = C.SOUND_MODE_START;
+const outBus = () => curBus || sfxBus;
+const lv = L => (L / 8) ** 2;                   // 目盛り → 大きさ（8 が基準の1倍、10 で約1.6倍、0 で消音）
+function applyVol() {
+  if (!AC) return;
+  const t = AC.currentTime;
+  master.gain.setTargetAtTime(C.SOUND_VOLUME * lv(vol.all), t, 0.02);
+  musicBus.gain.setTargetAtTime(lv(vol.music), t, 0.02);
+  sfxBus.gain.setTargetAtTime(lv(vol.sfx), t, 0.02);
+}
+const PENTA = [0, 2, 4, 7, 9];                  // ド レ ミ ソ ラ：どの順で鳴ってもきれいに聞こえる5音
+const noteHz = (step, octave) => 261.63 * Math.pow(2, octave + Math.floor(step / 5) + PENTA[step % 5] / 12);
+const midiHz = m => 440 * Math.pow(2, (m - 69) / 12);
+const wobble = () => 1 + (Math.random() - 0.5) * 0.01;   // 同じ音でも耳が疲れないよう、高さをほんの少し（±0.5%）だけ揺らす
+const sfx = { step: 0, lastNoteT: -9, qNext: 0, lastBump: -9, last: { m: -1, g: -1 } };
+// 食べ物がどちらを伸ばすか：'soft'＝大きさ、'hard'＝硬さ、'both'＝両方
+const kindOf = (s, h) => { const r = h / (s + h); return r >= 0.58 ? 'hard' : r <= 0.42 ? 'soft' : 'both'; };
+
+function audioInit() {          // ブラウザの決まりで、最初のキー入力のあとに音を出せるようにする
+  if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
+  try {
+    AC = new (window.AudioContext || window.webkitAudioContext)();
+    const lp = AC.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 7000;   // 耳に痛い高い成分を落とす
+    const comp = AC.createDynamicsCompressor(); comp.threshold.value = -20; comp.ratio.value = 4;
+    master = AC.createGain(); master.gain.value = C.SOUND_VOLUME * lv(vol.all);
+    musicBus = AC.createGain(); sfxBus = AC.createGain();
+    musicBus.gain.value = lv(vol.music); sfxBus.gain.value = lv(vol.sfx);
+    musicBus.connect(master); sfxBus.connect(master);
+    master.connect(lp); lp.connect(comp); comp.connect(AC.destination);
+    const un = AC.createBufferSource(); un.buffer = AC.createBuffer(1, 1, 22050); un.connect(AC.destination); un.start(0);   // iPhone で音を出せるようにする合図
+    const n = AC.createBuffer(1, AC.sampleRate, AC.sampleRate), d = n.getChannelData(0);   // ざらざらした音のもと
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    noiseBuf = n;
+    if (soundMode === 'music') musicStart();
+  } catch (e) { AC = null; }
+}
+function tone(freq, dur, type, vol, { slideTo = 0, delay = 0, attack = 0.005, pan = 0 } = {}) {   // pan：左(-1)〜右(1)
+  if (!AC || C.SOUND_VOLUME <= 0) return;
+  const t0 = AC.currentTime + Math.max(0, delay), o = AC.createOscillator(), g = AC.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq, t0);
+  if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(vol, t0 + attack);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g);
+  if (pan) { const sp = AC.createStereoPanner(); sp.pan.value = pan; g.connect(sp); sp.connect(outBus()); } else g.connect(outBus());
+  o.start(t0); o.stop(t0 + dur + 0.02);
+}
+function noise(t, dur, vol, type, freq) {   // 短いざらざら音（チッ、タッ、シャーン）
+  if (!AC || !noiseBuf || C.SOUND_VOLUME <= 0) return;
+  const src = AC.createBufferSource(), f = AC.createBiquadFilter(), g = AC.createGain();
+  src.buffer = noiseBuf; f.type = type; f.frequency.value = freq;
+  t = Math.max(t, AC.currentTime);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.003); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(f); f.connect(g); g.connect(outBus()); src.start(t, Math.random() * 0.5); src.stop(t + dur + 0.02);
+}
+function kick(t, vol) {         // 静かな「ドン」
+  if (!AC || C.SOUND_VOLUME <= 0) return;
+  t = Math.max(t, AC.currentTime);
+  const o = AC.createOscillator(), g = AC.createGain();
+  o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(45, t + 0.14);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+  o.connect(g); g.connect(outBus()); o.start(t); o.stop(t + 0.25);
+}
+
+// ---- 楽器 ----
+function marimba(f, delay, vol, weight = 0, pan = 0) {   // 温かい木の音（果物）。weight（0〜1）が大きいほど低い音を重ねて重く
+  tone(f, 0.35 + 0.25 * weight, 'sine', vol, { delay, attack: 0.004, pan });
+  tone(f * 4, 0.06, 'sine', vol * 0.2, { delay, attack: 0.002, pan });
+  tone(f * 2, 0.15, 'triangle', vol * 0.12, { delay, attack: 0.003, pan });
+  if (weight > 0.5) tone(f / 2, 0.45, 'sine', vol * 0.6 * weight, { delay, attack: 0.006, pan });
+}
+function glass(f, delay, vol, pan = 0) {   // きらきらしたベル・ガラスの音（宝石）：少しずれた倍音を長めに残す
+  tone(f, 0.9, 'sine', vol, { delay, attack: 0.002, pan });
+  tone(f * 2.76, 0.45, 'sine', vol * 0.3, { delay, attack: 0.002, pan });
+  tone(f * 5.4, 0.2, 'sine', vol * 0.1, { delay, attack: 0.002, pan });
+}
+function bell(freq, delay, vol, dur) {   // 鐘のような音（新しく食べられる、新記録）
+  tone(freq, dur, 'sine', vol, { delay, attack: 0.004 });
+  tone(freq * 2, dur * 0.6, 'sine', vol * 0.35, { delay, attack: 0.004 });
+  tone(freq * 3, dur * 0.35, 'sine', vol * 0.12, { delay, attack: 0.004 });
+}
+function tom(t, f, vol) {           // タム（フィルの太鼓）
+  if (!AC) return;
+  tone(f, 0.2, 'sine', vol, { slideTo: f * 0.6, delay: t - AC.currentTime, attack: 0.002 });
+  noise(t, 0.04, vol * 0.25, 'bandpass', f * 4);
+}
+function snare(t, vol) {            // 小太鼓
+  if (!AC) return;
+  noise(t, 0.13, vol, 'bandpass', 1900);
+  tone(190, 0.07, 'triangle', vol * 0.6, { slideTo: 150, delay: t - AC.currentTime, attack: 0.002 });
+}
+const hat = (t, vol) => noise(t, 0.035, vol, 'highpass', 8000);   // ハイハット
+function crash(t, vol, len = 1.6) {  // シンバル「ジャン」
+  noise(t, len, vol, 'highpass', 5200);
+  noise(t, len * 0.4, vol * 0.7, 'bandpass', 3000);
+}
+function woodKnock(delay, low, vol) {   // 木をコツンと叩く、こもった音
+  if (!AC) return;
+  const f = (low ? 200 : 560) * wobble();
+  tone(f, low ? 0.11 : 0.07, 'sine', vol, { slideTo: f * 0.82, delay, attack: 0.002 });
+  noise(AC.currentTime + Math.max(0, delay), 0.025, vol * 0.25, 'bandpass', f * 2.2);
+}
+
+// ---- 出来事ごとの音（音楽モードなら音楽の方へ） ----
+function tick() { noise(AC.currentTime, 0.012, 0.016, 'bandpass', 3500); }   // 食べた瞬間の「ぷち」：音の高さのない、ごく小さく短い音（リズムを乱さない）
+function sfxEat(ratio, kind) {  // ratio = 食べ物の大きさ ÷ 体の大きさ
+  if (!AC) return;
+  if (soundMode === 'music') { tick(); if (!mus.timer) musicStart(); }   // 音楽モード：すぐ鳴る小さな「ぷち」
+  if (kind !== 'hard') { mus.groove = Math.min(1, mus.groove + C.GROOVE_PER_FRUIT * (0.7 + 0.6 * ratio)); mus.grooveAt = clock; }   // 果物：ベースの層が厚くなる
+  queueEat({ kind, ratio });
+  pumpQueue(AC.currentTime);
+}
+// ばらばらの物を食べた音の行列：短い間にたくさん食べたら、16分音符の刻み（効果音モードは SFX_QUEUE_GAP 秒）で後ろに並べて、一つずつ鳴らす
+//   果物は2〜3音の短いフレーズ、殻つきなどの硬い物はベルの一音。続けて食べるほど、和音の音を1段ずつ上がる。EAT_QUEUE_MAX を超えたら古いものから省く
+const eatQ = [];
+function queueEat(item) {
+  eatQ.push(item);
+  while (eatQ.length > C.EAT_QUEUE_MAX) eatQ.shift();
+}
+function pumpQueue(now) {
+  if (!AC || !eatQ.length) return;
+  const music = soundMode === 'music' && !!mus.timer, unit = music ? eighth() / 2 : C.SFX_QUEUE_GAP;
+  while (eatQ.length) {
+    let t = Math.max(sfx.qNext, now + 0.015);
+    if (music) t = nextGrid(t, unit);                  // 16分音符の刻みにそろえる
+    if (t > now + 0.12) break;                         // まだ先：次の回にまわす
+    sfx.qNext = t + unit * playEatNote(eatQ.shift(), t, music, unit);   // フレーズの長さだけ、次をあける
+  }
+}
+// pool の中で、前の音（last）のすぐ上の音。前の音がない・いちばん上まで行ったら、いちばん下から（跳びすぎず、和音の音を順に上がる）
+const nextUp = (pool, last) => (last < 0 ? undefined : pool.find(m => m > last)) ?? pool[0];
+const triad = ch => ({ pcs: ch.pcs.slice(0, 3) });  // 和音のうち、ド・ミ・ソにあたる3つの音（いちばん濁らない）
+// 果物のフレーズ：[16分音符いくつ目, 和音の音の段（0＝その果物の音）]。何個目に食べたかで形を変えて、リズムに変化をつける
+const FRUIT_PHRASES = [[[0, 0], [1, 2], [2, 1]], [[0, 1], [2, 0], [3, 2]], [[0, 0], [1, 1]], [[0, 2], [2, 0], [3, 1]]];
+// lo からの音域で、base 以上のいちばん近い和音の音から st 段上の音（音楽モードは t の時の和音、効果音モードはドレミソラ）
+function stepNote(music, t, lo, base, st) {
+  const pool = music ? chordNotes(chordAt(t), lo, lo + 30) : penta(lo, lo + 30);
+  let i = pool.findIndex(m => m >= base);
+  if (i < 0) i = pool.length - 1;
+  return pool[clamp(i + st, 0, pool.length - 1)];
+}
+function playEatNote(q, t, music, unit) {   // 並んだ音を1つ鳴らす。使った長さ（unit いくつ分）を返す
+  if (t - sfx.lastNoteT > C.EAT_COMBO_GAP) { sfx.step = 0; sfx.last = { m: -1, g: -1 }; } else sfx.step++;
+  sfx.lastNoteT = t;
+  const now = AC.currentTime, d = t - now, vol = 0.055 + 0.03 * q.ratio, ch = music ? chordAt(t) : null;
+  const pool = lo => music ? chordNotes(ch, lo, lo + 26) : penta(lo, lo + 26);   // 音楽モード：その時の和音の音 ／ 効果音モード：ドレミソラ
+  const rising = (list, key) => (sfx.last[key] = nextUp(list, sfx.last[key]));   // 大きさで決まる音域から、前の音のすぐ上へ
+  if (q.kind === 'hard') {    // 硬い物（殻つきなど）：きらきらのベルの一音
+    const m = rising(pool(q.ratio > 0.66 ? 67 : q.ratio > 0.33 ? 74 : 79), 'g');
+    glass(midiHz(m) * wobble(), d, vol * 0.55);
+    return 1;
+  }
+  // 果物（どんぐりも）：マリンバの短いフレーズ。大きい物ほど低い音域から
+  const lo = q.ratio > 0.66 ? 48 : q.ratio > 0.33 ? 55 : 62, base = rising(pool(lo), 'm'), both = q.kind === 'both';
+  const ph = FRUIT_PHRASES[sfx.step % FRUIT_PHRASES.length];
+  ph.forEach(([off, st], i) => {
+    const tt = t + off * unit, m = stepNote(music, tt, lo, base, st);
+    marimba(midiHz(m), tt - now, (i ? 0.65 : 1) * (both ? vol * 0.8 : vol), i ? 0 : q.ratio);
+    if (both && i === ph.length - 1) glass(midiHz(m + 24), tt - now, vol * 0.25);   // どんぐり：最後に小さなきらっ
+  });
+  return ph[ph.length - 1][0] + 1;
+}
+const penta = (lo, hi) => { const out = []; for (let m = lo; m <= hi; m++) if (PENTA.includes(m % 12)) out.push(m); return out; };
+// 和音の根音を、lo〜lo+11 の高さで
+const rootIn = (ch, lo) => lo + ((((ch.root % 12) - lo) % 12) + 12) % 12;
+function playClusterChord(q, t, music) {   // 宝石のかたまりを食べ切った：和音が下から上へ花が開くように素早く広がり、低い根音が支える。その場所できらっ
+  const d = t - AC.currentTime, n = q.chord, ch = music ? chordAt(t) : { root: 48, pcs: [0, 4, 7] };   // 効果音モードはドミソ
+  chordNotes(ch, 60, 98).slice(0, 4 + n).forEach((m, i) => glass(midiHz(m), d + i * 0.035, 0.028 + 0.002 * i));   // 下から上へ
+  tone(midiHz(rootIn(ch, 36)), 2.4, 'sine', 0.08, { delay: d, attack: 0.01 });               // 低い根音
+  tone(midiHz(rootIn(ch, 48)), 1.6, 'triangle', 0.03, { delay: d, attack: 0.01 });
+  bell(midiHz(rootIn(ch, 72)), d + 0.02, 0.022 + 0.004 * n, 1.4);
+  noise(t, 0.7, 0.006 + 0.002 * n, 'highpass', 6500);
+  sparks.push({ x: q.x, y: q.y, t: -d, life: 0.8, s: 8 + 3 * n });
+  if (music) bandAnswer(t);
+}
+// 背景のバンドが応える：次の拍の頭へ向けて太鼓の短いフィル（32分音符で3つ、高い→低い）、拍の頭でシンバルの「ジャン」とバスドラム、ベースと和音
+let bandAt = -9;
+function bandAnswer(after) {
+  const q = eighth() * 2, B = nextGrid(after + 0.01, q), s32 = q / 8, ch = chordAt(B), d = B - AC.currentTime;
+  if (Math.abs(B - bandAt) < 0.01) return;             // 同じ拍で2回は応えない
+  bandAt = B;
+  curBus = musicBus;
+  [[3, 270, 0.07], [2, 205, 0.075], [1, 150, 0.08]].forEach(([k, f, v]) => tom(B - k * s32, f, v));
+  crash(B, 0.045); kick(B, 0.13);
+  tone(midiHz(rootIn(ch, 36)), q * 1.6, 'triangle', 0.09, { delay: d, attack: 0.005 });
+  for (const m of chordNotes(ch, 60, 72)) marimba(midiHz(m), d, 0.026);
+  curBus = null;
+}
+// 宝石の列：一つ食べるごとに、テーマのメロディを一音ずつ、次の8分音符の刻みで鳴らす（列が短いときはテーマの途中まで、長いときはくり返す）
+//   続けて食べて刻みが詰まったら、次の8分音符へ順に並べる
+//   列を取り切ったら：最後の音は、その時の和音の根音（効果音モードはド）に着地して締め、次の拍の頭で背景のバンドが応える
+const rowSnd = { next: 0 };
+function rowNote(g, done) {
+  const now = AC.currentTime, music = soundMode === 'music' && !!mus.timer;
+  let t = Math.max(rowSnd.next, now + 0.015);
+  if (music) t = nextGrid(t, eighth());
+  rowSnd.next = t + (music ? eighth() : C.ROW_SFX_GAP);
+  g.mel = g.mel < 0 ? 0 : g.mel + 1;                   // テーマの何音目か
+  const d = t - now, T = C.THEME;
+  if (!done) {
+    const m = T[g.mel % T.length][0];
+    glass(midiHz(m), d, 0.06);
+    tone(midiHz(m - 12), 0.28, 'triangle', 0.02, { delay: d, attack: 0.004 });   // 1オクターブ下を小さく重ねて、旋律をはっきり
+    return;
+  }
+  const ch = music ? chordAt(t) : null;                // 落ち着く音：和音にドがあればド（テーマの終わりの音）、なければ根音
+  const m = !music || ch.pcs.includes(0) ? 72 : rootIn(ch, 67) - (rootIn(ch, 67) > 72 ? 12 : 0);
+  glass(midiHz(m), d, 0.07);
+  bell(midiHz(m - 12), d, 0.035, 1.4);
+  glass(midiHz(m + 12), d + 0.03, 0.012);              // ごく小さな飾り
+  tone(midiHz(m - 24), 0.9, 'triangle', 0.03, { delay: d, attack: 0.005 });
+  if (music) bandAnswer(t);
+}
+// 宝石のかたまり：ほぼ同時に食べた音は、並べずに、全部を1つの和音として次の8分音符の刻みで同時に鳴らす
+//   和音の音は、その時の和音のド・ミ・ソにあたる3音を下から重ねる（濁らない）。食べ切ったら、その次の8分音符で完成の和音ときらっ
+const blobSnd = { t: -9, k: 0 };
+function blobGather(id) {              // 同じかたまりの残りのうち、進む先にあってすぐ食べそうな物を、食べ終わるまでの秒数
+  const sp = Math.hypot(ham.vx, ham.vy);
+  let eta = 0;
+  if (sp < 30) return 0;
+  for (const o of foods) {
+    if (o.cluster !== id) continue;
+    const d = Math.max(0, rectDist(o, ham.x, ham.y) - ham.r), ahead = (o.x - ham.x) * ham.vx + (o.y - ham.y) * ham.vy > 0;
+    if (ahead && d / sp < C.BLOB_GATHER) eta = Math.max(eta, d / sp);
+  }
+  return eta;
+}
+function blobNote(g, done, id) {
+  const now = AC.currentTime, music = soundMode === 'music' && !!mus.timer;
+  if (blobSnd.t < now + 0.01) {                        // 新しい和音を始める（すぐ食べそうな残りを待ってから）
+    const wait = now + 0.03 + blobGather(id);
+    blobSnd.t = music ? nextGrid(Math.max(wait, blobSnd.t + 0.01), eighth()) : wait;
+    blobSnd.k = 0;
+  }
+  const t = blobSnd.t, ch = music ? chordAt(t) : { pcs: [0, 4, 7] };   // 効果音モードはドミソ
+  const notes = chordNotes(triad(ch), 67, 100), d = t - now;
+  bell(midiHz(notes[Math.min(blobSnd.k, notes.length - 1)]), d, 0.034, 0.9);
+  if (blobSnd.k === 0) tone(midiHz(chordNotes(triad(ch), 48, 59)[0]), 0.7, 'sine', 0.03, { delay: d, attack: 0.006 });   // 下に低い音を1つ敷く
+  blobSnd.k++;
+  if (done) playClusterChord({ chord: g.n, x: g.sx / g.eaten, y: g.sy / g.eaten }, t + (music ? eighth() : 0.15), music);
+}
+function sfxBump(lackSize, lackTeeth) {   // 取れない物に当たった
+  if (!AC) return;
+  if (soundMode === 'music') return musicBump(lackSize, lackTeeth);
+  if (AC.currentTime - sfx.lastBump < 0.12) return;
+  sfx.lastBump = AC.currentTime;
+  if (lackSize) woodKnock(0, true, 0.07);
+  if (lackTeeth) woodKnock(lackSize ? 0.06 : 0, false, 0.05);
+}
+function sfxGrow(gb, gt) {      // 成長：大きさが伸びた＝温かい音、硬さが伸びた＝きらきらの音で上がっていく
+  if (!AC) return;
+  if (soundMode === 'music') return musicGrow(gb, gt);
+  [[2, 1], [3, 1], [0, 2]].forEach(([st, oc], i) => gb >= gt ? marimba(noteHz(st, oc), i * 0.05, 0.03) : glass(noteHz(st, oc + 1), i * 0.05, 0.02));
+}
+function unlockDelay() {        // 新しく食べられる演出を始めるまでの秒数（音楽モードは次の拍にそろえる）
+  if (!AC || soundMode !== 'music' || !mus.timer) return 0;
+  return nextGrid(AC.currentTime + 0.015, eighth() * 2) - AC.currentTime;
+}
+function sfxUnlock(delay) {     // 新しく食べられる：鐘でド・ミ・ソ・ド、下に低いドを敷く
+  if (!AC) return;
+  if (soundMode === 'music') return musicUnlock(delay);
+  [[0, 1], [2, 1], [3, 1], [0, 2]].forEach(([st, oc], i) => bell(noteHz(st, oc), i * 0.09, 0.06, 0.9));
+  tone(noteHz(0, 0), 1.2, 'sine', 0.05, { attack: 0.03 });
+}
+function sfxFinale() {          // 大岩を食べた：締めくくり。終わるまでの秒数を返す
+  if (!AC) return 0;
+  if (soundMode === 'music') return musicFinale();
+  const e = eighth(), T = C.THEME;                     // 効果音モード：テーマをそのままの速さで鳴らして、ドの和音に着地
+  let k = 0;
+  for (const [m, len] of T.slice(0, -1)) { marimba(midiHz(m), 0.05 + k * e, 0.06, 0.2); glass(midiHz(m + 12), 0.05 + k * e, 0.022); k += len; }
+  const d = 0.05 + k * e;
+  for (const m of [48, 55, 64, 67, 72]) marimba(midiHz(m), d, 0.05, 0.8);
+  for (const m of [79, 84, 88]) glass(midiHz(m), d + 0.03, 0.03);
+  tone(midiHz(36), 3, 'sine', 0.07, { delay: d, attack: 0.01 });
+  return d + 1;
+}
+function sfxRecord() {          // 新記録：ソ・ド・ミ・ソと上がって、ドミソの和音
+  [[3, 0], [0, 1], [2, 1], [3, 1]].forEach(([st, oc], i) => tone(noteHz(st, oc), 0.16, 'triangle', 0.07, { delay: i * 0.11 }));
+  [[0, 1], [2, 1], [3, 1]].forEach(([st, oc]) => tone(noteHz(st, oc), 1.1, 'triangle', 0.045, { delay: 0.46, attack: 0.02 }));
+  bell(noteHz(0, 2), 0.46, 0.05, 1.3);
+}
+
+// ---------------- 音楽モード ----------------
+//   背景：静かなビートと、4つの和音（C△7 → Am7 → F△7 → G6）の繰り返し
+//   大きさの層（温かい楽器）は体の大きさで、硬さの層（きらきらした楽器）は歯の硬さで、それぞれ厚くなる
+//     → 片方が遅れていると、その楽器の層だけが薄く、音楽に「穴」が空いて聞こえる
+//   食べた音：食べた瞬間には音の高さのない小さな「ぷち」をすぐ鳴らし、音の高さのある音は8分・16分音符の刻みで鳴らす
+//   果物を続けて食べると、はずむベースのリズムの層が一時的に加わる
+//   大岩に近づくと少し盛り上がり、食べられるようになるとさらに盛り上がる展開になる
+//   大岩を食べたら：テーマをバンド全員で演奏し（F△7 → G7）、次の小節の頭で C に解決して締めくくる
+const CHORDS = [
+  { root: 48, pcs: [0, 4, 7, 11] },   // C△7
+  { root: 45, pcs: [9, 0, 4, 7] },    // Am7
+  { root: 41, pcs: [5, 9, 0, 4] },    // F△7
+  { root: 43, pcs: [7, 11, 2, 4] },   // G6
+];
+const CADENCE_G = { root: 43, pcs: [7, 11, 2, 5] };   // G7：締めくくりの直前
+const FINAL_C = { root: 36, pcs: [0, 4, 7, 2] };      // Cadd9：締めの和音
+const mus = { timer: null, t0: 0, next: 0, step: 0, bumpSlot: -1, goal: false, fin: null, groove: 0, grooveAt: -9 };
+const eighth = () => 30 / C.MUSIC_BPM;
+const stepAt = t => Math.floor((t - mus.t0) / eighth() + 1e-6);
+function stepChord(step) {      // その8分音符の和音（締めくくりの間は、テーマの小節が F△7（半小節）→ G7（半小節）、そのあとは C）
+  if (mus.fin) {
+    if (step >= mus.fin.down) return FINAL_C;
+    if (step >= mus.fin.gFrom) return CADENCE_G;
+    if (step >= mus.fin.fFrom) return CHORDS[2];
+  }
+  return CHORDS[((Math.floor(step / 8) % 4) + 4) % 4];
+}
+const chordAt = t => stepChord(stepAt(t));
+const nextGrid = (t, unit) => mus.t0 + Math.ceil((t - mus.t0) / unit - 1e-6) * unit;
+const chordNotes = (ch, lo, hi) => { const out = []; for (let m = lo; m <= hi; m++) if (ch.pcs.includes(((m % 12) + 12) % 12)) out.push(m); return out; };
+const layer = (v, i) => clamp((v - C.MUSIC_LAYERS_AT[i]) / 0.8, 0, 1);   // その能力が段を超えると、少しずつ鳴り出す
+function beatPhase() {          // 拍の中のどこにいるか（0〜1）。拍に合わせて光らせるのに使う
+  if (AC && mus.timer) return (((AC.currentTime - mus.t0) / (eighth() * 2)) % 1 + 1) % 1;
+  return (clock * C.MUSIC_BPM / 60) % 1;
+}
+function boulderNear() {        // 大岩への近さ（0＝遠い … 1＝くっついている）
+  const b = foods.find(f => f.boulder);
+  return b ? clamp(1 - (rectDist(b, ham.x, ham.y) - ham.r) / C.BOULDER_NEAR, 0, 1) : 0;
+}
+function musicStart() {
+  if (!AC || mus.timer) return;
+  mus.t0 = mus.next = AC.currentTime + 0.1; mus.step = 0;
+  mus.timer = setInterval(musicTick, 25);
+}
+function musicStop() { if (mus.timer) { clearInterval(mus.timer); mus.timer = null; } }
+function musicTick() {
+  if (!AC || soundMode !== 'music' || C.SOUND_VOLUME <= 0) return;
+  const e = eighth(), now = AC.currentTime;
+  if (mus.next < now - 0.05) { mus.step = Math.ceil((now - mus.t0) / e); mus.next = mus.t0 + mus.step * e; }   // 止まっていた分はとばす
+  curBus = musicBus;            // 背景の音楽は「音楽」の音量を通す
+  try { while (mus.next < now + 0.15) { playStep(mus.step, mus.next); mus.step++; mus.next = mus.t0 + mus.step * e; } }
+  finally { curBus = null; }
+  pumpQueue(now);               // 並べた食べた音を、16分音符の刻みで鳴らす
+}
+function playStep(step, t) {     // 8分音符1つぶんの背景
+  if (mus.fin && step >= mus.fin.down) {                                // 締めくくりのあと
+    if (step >= mus.fin.calm) playCalm(step, t);                         //   しばらく余韻を聞かせてから、静かな音楽
+    return;
+  }
+  const pos = step % 8, bar = Math.floor(step / 8), ch = stepChord(step), e = eighth(), d = t - AC.currentTime, V = C.MUSIC_VOLUME, goal = mus.goal;
+  const B = i => layer(ham.body, i) * V, T = i => layer(ham.teeth, i) * V, half = pos % 4 === 0;   // 和音は半小節ごとに鳴らし直す
+  // 土台（いつも）：やわらかい和音と静かなドン
+  if (half) for (const m of chordNotes(ch, 55, 67)) tone(midiHz(m), e * 4 * 0.95, 'triangle', 0.009 * V, { delay: d, attack: 0.3 });
+  if (mus.fin) return;                                                  // 締めくくりの演奏中は、バンドに任せる
+  // ── 果物を続けて食べると：はずむベースのリズムの層（しばらく食べないと消える） ──
+  const G = mus.groove * V;
+  if (G > 0.02) {
+    // [8分音符の中の位置（0 か 0.5）, 根音からの音程, 強さ, 鳴らし始める厚み]
+    const GROOVE = [[[0, 0, 1, 0]], [[0.5, 12, 0.5, 0.35]], [[0, 7, 0.75, 0]], [[0, 12, 0.6, 0.2], [0.5, 7, 0.45, 0.6]],
+      [[0, 0, 0.9, 0]], [[0.5, 7, 0.5, 0.35]], [[0, 12, 0.7, 0.2]], [[0, 7, 0.6, 0], [0.5, 0, 0.45, 0.6]]];
+    for (const [sub, iv, acc, from] of GROOVE[pos]) {
+      if (G < from) continue;
+      const tt = d + sub * e, f = midiHz(rootIn(ch, 40) + iv);
+      tone(f, e * 0.45, 'triangle', 0.085 * G * acc, { delay: tt, attack: 0.004 });
+      tone(f * 2, e * 0.2, 'sine', 0.025 * G * acc, { delay: tt, attack: 0.003 });          // 小さなスピーカーでも聞こえるように
+    }
+    if (G > 0.55) { hat(t + e / 2, 0.012 * G); if (pos % 2) hat(t, 0.008 * G); }            // 厚くなると、細かい刻みも
+    if (G > 0.75 && pos === 3) kick(t + e / 2, 0.06 * G);
+  }
+  if (pos === 0 || pos === 4 || (goal && pos % 2 === 0)) kick(t, (goal ? 0.1 : 0.075) * V);
+  // ── 大きさの層（温かい楽器）：体が大きくなるほど増える ──
+  if (B(0)) {                                                                                           // 1：ベース
+    if (pos === 0 || pos === 4) tone(midiHz(ch.root), e * 1.8, 'triangle', 0.07 * B(0), { delay: d, attack: 0.01 });
+    if (pos === 3 || pos === 6) tone(midiHz(ch.root + 7), e * 0.9, 'triangle', 0.05 * B(0), { delay: d, attack: 0.01 });
+  }
+  if (B(1) && (pos === 2 || pos === 5)) for (const m of chordNotes(ch, 57, 66).slice(0, 2)) marimba(midiHz(m), d, 0.022 * B(1));   // 2：マリンバの合いの手
+  if (B(2)) {                                                                                           // 3：低い温かい和音と、低いマリンバ
+    if (half) for (const m of chordNotes(ch, 45, 55)) tone(midiHz(m), e * 4 * 0.9, 'triangle', 0.012 * B(2), { delay: d, attack: 0.4 });
+    if (pos === 1 || pos === 4 || pos === 7) { const lo = chordNotes(ch, 50, 62); marimba(midiHz(lo[[0, 0, 1, 1, 2, 2, 3, 3][pos] % lo.length]), d, 0.02 * B(2)); }
+  }
+  if (B(3)) {                                                                                           // 4：木の太鼓「ポン」と、ピアノのような和音
+    if (pos === 3 || pos === 7) tone(150, 0.16, 'sine', 0.05 * B(3), { slideTo: 95, delay: d });
+    if (half) for (const m of chordNotes(ch, 60, 71)) marimba(midiHz(m), d, 0.012 * B(3));
+  }
+  if (B(4)) tone(midiHz(ch.root + [0, 4, 7, 12, 7, 4, 2, 4][pos]), e * 0.85, 'triangle', 0.035 * B(4), { delay: d, attack: 0.01 });   // 5：歩くベース
+  // ── 硬さの層（きらきらした楽器）：歯が硬くなるほど増える ──
+  if (T(0)) {                                                                                           // 1：チッと、小さなきらっ
+    if (pos % 2 === 1) noise(t, 0.03, 0.016 * T(0), 'highpass', 6500);
+    if (pos === 7) glass(midiHz(chordNotes(ch, 84, 95)[0]), d, 0.01 * T(0));
+  }
+  if (T(1)) { const arp = chordNotes(ch, 72, 88); glass(midiHz(arp[[0, 1, 2, 3, 2, 1, 2, 3][pos] % arp.length]), d, 0.012 * T(1)); }   // 2：ベルの分散和音
+  if (T(2) && half) for (const m of chordNotes(ch, 76, 88)) tone(midiHz(m), e * 4 * 0.9, 'sine', 0.006 * T(2), { delay: d, attack: 0.5 });   // 3：ガラスの和音
+  if (T(3) && pos % 2 === 0) { const hi = chordNotes(ch, 79, 96); glass(midiHz(hi[(step >> 1) % hi.length]), d + e / 2, 0.009 * T(3)); }   // 4：細かい合いの手
+  if (T(4)) {                                                                                           // 5：シャカシャカと、いちばん上のきらっ
+    noise(t + e / 2, 0.022, 0.01 * T(4), 'highpass', 7500);
+    if (pos === 0) glass(midiHz(chordNotes(ch, 91, 100)[0]), d, 0.012 * T(4));
+  }
+  // ── 大岩に近づくと、少し盛り上がる ──
+  const near = boulderNear() * V;
+  if (near > 0 && !goal) {
+    if (pos === 0 || pos === 4) tone(80, 0.3, 'sine', 0.05 * near, { slideTo: 55, delay: d });       // 低い太鼓
+    if (pos === 6) tone(80, 0.2, 'sine', 0.03 * near, { slideTo: 55, delay: d });
+    if (half) for (const m of [ch.root - 12, ch.root - 5]) tone(midiHz(m), e * 4 * 0.9, 'sine', 0.02 * near, { delay: d, attack: 0.4 });
+    if (pos === 7) noise(t, e * 0.9, 0.012 * near, 'bandpass', 2500);
+  }
+  // ── 大岩が食べられるようになったら：盛り上がる展開 ──
+  if (goal) {
+    if (pos === 2 || pos === 6) { noise(t, 0.14, 0.035 * V, 'bandpass', 1500); tone(200, 0.08, 'sine', 0.03 * V, { delay: d }); }   // 手拍子
+    if (pos % 2 === 1) noise(t, 0.09, 0.012 * V, 'highpass', 5000);                                     // 開いたチッ
+    const lead = chordNotes(ch, 72, 84), mel = [0, -1, 1, 2, -1, 3, 2, 1][pos];                          // 主旋律
+    if (mel >= 0) { const m = lead[mel % lead.length]; marimba(midiHz(m), d, 0.03 * V); glass(midiHz(m + 12), d, 0.012 * V); }
+    if (pos === 7 && bar % 4 === 3) noise(t, e, 0.02 * V, 'bandpass', 3000);                             // 4小節ごとに「シャー」
+  }
+}
+function playCalm(step, t) {     // クリア画面：C△9 と F△9 をゆっくり行き来する、静かな音楽
+  const pos = step % 8, ch = Math.floor(step / 16) % 2 ? { root: 41, pcs: [5, 9, 0, 4, 7] } : { root: 36, pcs: [0, 4, 7, 11, 2] };
+  const d = t - AC.currentTime, e = eighth(), V = C.MUSIC_VOLUME;
+  if (step % 16 === 0) {
+    for (const m of chordNotes(ch, 55, 71)) tone(midiHz(m), e * 16 * 0.95, 'triangle', 0.008 * V, { delay: d, attack: 0.9 });
+    tone(midiHz(ch.root + 12), e * 12, 'sine', 0.03 * V, { delay: d, attack: 0.3 });
+  }
+  if (pos === 0 || pos === 3 || pos === 6) { const hi = chordNotes(ch, 72, 88); glass(midiHz(hi[(step * 3) % hi.length]), d, 0.008 * V); }
+}
+function musicBump(lackSize, lackTeeth) {   // 取れない物に当たった：次の8分音符で、木をコツン
+  const t = nextGrid(AC.currentTime + 0.01, eighth());
+  if (t === mus.bumpSlot) return;
+  mus.bumpSlot = t;
+  const d = t - AC.currentTime;
+  if (lackSize) woodKnock(d, true, 0.07);                           // 大きさが足りない：低い「コン」
+  if (lackTeeth) woodKnock(lackSize ? d + eighth() / 2 : d, false, 0.05);   // 歯が足りない：高い「カッ」
+}
+function musicGrow(gb, gt) {     // 成長：次の8分音符から、伸びた方の楽器で小さく2つ
+  const t = nextGrid(AC.currentTime + 0.015, eighth()), ch = chordAt(t), d = t - AC.currentTime;
+  if (gb >= gt) { const pool = chordNotes(ch, 64, 76); [0, 2].forEach((k, i) => marimba(midiHz(pool[k % pool.length]), d + i * eighth() / 2, 0.025)); }
+  else { const pool = chordNotes(ch, 84, 96); [0, 2].forEach((k, i) => glass(midiHz(pool[k % pool.length]), d + i * eighth() / 2, 0.016)); }
+}
+function musicUnlock(delay) {    // 新しく食べられる：次の拍から、和音の音を16分で駆け上がるフレーズ＋低い根音
+  const t = AC.currentTime + delay, ch = chordAt(t), notes = chordNotes(ch, 64, 91).slice(0, 8);
+  notes.forEach((m, i) => bell(midiHz(m), delay + i * eighth() / 2, 0.05, 0.9));
+  tone(midiHz(ch.root), 1.6, 'sine', 0.07, { delay, attack: 0.02 });
+  noise(t, 0.9, 0.012, 'highpass', 5000);
+}
+function musicGoal() {           // 大岩が食べられるようになった：次の小節の頭へ向けて「シューッ」と盛り上げる
+  if (!AC || soundMode !== 'music' || !mus.timer || C.SOUND_VOLUME <= 0) return;
+  const now = AC.currentTime, end = nextGrid(now + eighth() * 4, eighth() * 8);
+  const src = AC.createBufferSource(), f = AC.createBiquadFilter(), g = AC.createGain();
+  src.buffer = noiseBuf; src.loop = true; f.type = 'bandpass'; f.Q.value = 1.2;
+  f.frequency.setValueAtTime(400, now); f.frequency.exponentialRampToValueAtTime(6000, end);
+  g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(0.035, end); g.gain.exponentialRampToValueAtTime(0.0001, end + 0.05);
+  curBus = musicBus;
+  src.connect(f); f.connect(g); g.connect(outBus()); src.start(now); src.stop(end + 0.1);
+  noise(end, 1.6, 0.03, 'highpass', 4000); kick(end, 0.12);
+  curBus = null;
+}
+// 大岩を食べた：締めくくり。F△7（半小節）→ G7（半小節）→ 小節の頭で C に解決する流れの上で、
+//   遊んでいる間に列で聞いてきたテーマを、バンド全員（マリンバ・ベル・ベース・太鼓）で最初から最後まで演奏する
+//   テーマの最後の音は小節の頭で C の和音に着地し、余韻を残しながら消えていく（全体で5〜8秒）。締めの和音が鳴るまでの秒数＋少しを返す
+function musicFinale() {
+  if (!mus.timer) musicStart();
+  const e = eighth(), now = AC.currentTime, T = C.THEME;
+  tick();                                                                // すぐ鳴る「ぷち」
+  const k0 = Math.ceil((now + 0.03 - mus.t0) / e - 1e-6);                // 食べたすぐ後の8分音符
+  const lead = T.slice(0, -1).reduce((a, n) => a + n[1], 0);             // 着地の音までの長さ（8分音符）
+  const down = Math.ceil((k0 + 1 + lead) / 8) * 8;                       // テーマを最初から入れられる、いちばん近い小節の頭
+  const start = down - lead;                                             // テーマの最初の音
+  mus.fin = { fFrom: down - 8, gFrom: down - 4, down, calm: down + 16 };  // 着地のあと2小節は余韻、そのあと静かな音楽
+  const tk = k => mus.t0 + k * e, at = k => tk(k) - now;
+  crash(tk(k0), 0.035, 1.2); kick(tk(k0), 0.12);                         // 食べた瞬間：「ジャン」
+  for (let k = k0 + 1; k < start; k++) snare(tk(k), 0.02 + 0.03 * (k - k0) / Math.max(1, start - k0));   // テーマまで：小太鼓がだんだん強く
+  // テーマ：マリンバとベルで旋律
+  let k = start;
+  for (const [m, len] of T.slice(0, -1)) {
+    marimba(midiHz(m), at(k), 0.065, 0.2);
+    glass(midiHz(m + 12), at(k), 0.024);
+    if (len > 1) bell(midiHz(m), at(k), 0.018, e * len * 1.4);
+    k += len;
+  }
+  // ベースと太鼓（テーマの小節）：ベースは F → G で弾み、バスドラムは拍、小太鼓は2・4拍目、ハイハットは8分。最後の拍は太鼓のフィル
+  for (let j = 0; j < 8; j++) {
+    const kk = down - 8 + j, root = rootIn(stepChord(kk), 36);
+    tone(midiHz(root + [0, 0, 12, 7, 0, 0, 12, 7][j]), e * 0.8, 'triangle', 0.08, { delay: at(kk), attack: 0.004 });
+    if (j % 2 === 0) kick(tk(kk), 0.1);
+    if (j === 2) snare(tk(kk), 0.05);
+    if (j < 6) hat(tk(kk), 0.012);
+  }
+  [[0, 300], [0.5, 250], [1, 200], [1.5, 160]].forEach(([o, f], i) => tom(tk(down - 2 + o), f, 0.07 + 0.01 * i));
+  for (const m of chordNotes(stepChord(down - 8), 55, 67)) marimba(midiHz(m), at(down - 8), 0.022);
+  for (const m of chordNotes(stepChord(down - 4), 55, 67)) marimba(midiHz(m), at(down - 4), 0.022);
+  // 着地：小節の頭で C の和音。テーマの最後の音（ド）、シンバル、バスドラム、低いド。余韻を残しながら消えていく
+  const tDown = tk(down), d = tDown - now, last = T[T.length - 1][0];
+  marimba(midiHz(last), d, 0.07, 0.6); glass(midiHz(last + 12), d, 0.035); bell(midiHz(last), d, 0.04, 3);
+  for (const m of chordNotes(FINAL_C, 48, 84)) tone(midiHz(m), 3.2, 'triangle', 0.01, { delay: d, attack: 0.02 });
+  for (const m of [48, 55, 64]) marimba(midiHz(m), d, 0.045, 0.8);
+  for (const m of [79, 84, 86]) glass(midiHz(m), d + 0.03, 0.022);
+  tone(midiHz(36), 3, 'sine', 0.085, { delay: d, attack: 0.01 });
+  kick(tDown, 0.14); crash(tDown, 0.04, 2.6);
+  return d + 1.2;
+}
+
+// ---------------- 動作確認用の自動プレイ ----------------
+// URL に ?bot を付けると自動で遊ぶ（?bot&speed=10 で早回し）。
+// コンソールで simulate() を呼ぶと画面を使わずに最後まで遊んでクリア時間を返す（数値調整の目安用）。
+const bot = { target: null, plan: null, planT: 0, ban: new Map() };
+const GRID = 10, GW = Math.ceil(C.FIELD_W / GRID), GH = Math.ceil(C.FIELD_H / GRID);
+function botPlan(f) {             // 目標までの距離マップ（食べられないものを避けた格子の上で幅優先探索）
+  const blocked = new Uint8Array(GW * GH), dist = new Int32Array(GW * GH).fill(-1);
+  const r = ham.r + 1, q = [];
+  for (let gy = 0; gy < GH; gy++) for (let gx = 0; gx < GW; gx++) {   // 壁ぎわ（体が入りきらない所）
+    const cx = (gx + 0.5) * GRID, cy = (gy + 0.5) * GRID;
+    if (cx < r || cy < r || cx > C.FIELD_W - r || cy > C.FIELD_H - r) blocked[gy * GW + gx] = 1;
+  }
+  for (const o of foods) {
+    if (o.edible) continue;
+    const hw = o.w / 2 + r;
+    for (let gy = Math.max(0, Math.floor((o.y - hw) / GRID)); gy <= Math.min(GH - 1, Math.floor((o.y + hw) / GRID)); gy++)
+      for (let gx = Math.max(0, Math.floor((o.x - hw) / GRID)); gx <= Math.min(GW - 1, Math.floor((o.x + hw) / GRID)); gx++)
+        if (rectDist(o, (gx + 0.5) * GRID, (gy + 0.5) * GRID) < r) blocked[gy * GW + gx] = 1;
+  }
+  const hw = f.w / 2 + r + C.EAT_REACH * 0.5;
+  for (let gy = Math.max(0, Math.floor((f.y - hw) / GRID)); gy <= Math.min(GH - 1, Math.floor((f.y + hw) / GRID)); gy++)
+    for (let gx = Math.max(0, Math.floor((f.x - hw) / GRID)); gx <= Math.min(GW - 1, Math.floor((f.x + hw) / GRID)); gx++) {
+      const i = gy * GW + gx;
+      if (!blocked[i] && rectDist(f, (gx + 0.5) * GRID, (gy + 0.5) * GRID) < r + C.EAT_REACH * 0.5) { dist[i] = 0; q.push(i); }
+    }
+  for (let qi = 0; qi < q.length; qi++) {
+    const i = q[qi], x = i % GW, y = (i / GW) | 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const nx = x + dx, ny = y + dy;
+      if ((!dx && !dy) || nx < 0 || ny < 0 || nx >= GW || ny >= GH) continue;
+      const j = ny * GW + nx;
+      if (blocked[j] || dist[j] >= 0) continue;
+      if (dx && dy && (blocked[y * GW + nx] || blocked[ny * GW + x])) continue;
+      dist[j] = dist[i] + 1; q.push(j);
+    }
+  }
+  return dist;
+}
+function botPick() {
+  const boulder = foods.find(f => f.boulder && f.edible);
+  if (boulder) return boulder;
+  const wB = ham.body < C.BOULDER[0] ? 1 / ham.body : 0, wT = ham.teeth < C.BOULDER[1] ? 1 / ham.teeth : 0;
+  let best = null, bs = -1;
+  for (const f of foods) {
+    if (!f.edible || f.born < 1 || f.suck || (bot.ban.get(f) ?? -1) > clock) continue;
+    const g = gains(f.s, f.h);
+    const sc = (g.body * wB + g.teeth * wT) / (rectDist(f, ham.x, ham.y) + 60);
+    if (sc > bs) { bs = sc; best = f; }
+  }
+  return best;
+}
+function botThink(dt) {
+  input.up = input.down = input.left = input.right = input.eat = false;
+  if (cleared) return;
+  if (!bot.target || !foods.includes(bot.target) || !bot.target.edible || bot.target.suck) { bot.target = botPick(); bot.plan = null; }
+  const f = bot.target;
+  if (!f) return;
+  if (eatMode === 'A' && rectDist(f, ham.x, ham.y) - ham.r <= C.EAT_REACH) { input.eat = true; return; }
+  if (!bot.plan || (bot.planT -= dt) <= 0) { bot.plan = botPlan(f); bot.planT = 0.3; }
+  // 今いるマスの周り（5×5）で、いちばん目標に近いマスへ向かう
+  const hx = Math.floor(ham.x / GRID), hy = Math.floor(ham.y / GRID);
+  let bx = -1, by = -1, bd = Infinity;
+  for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+    const x = hx + dx, y = hy + dy;
+    if (x < 0 || y < 0 || x >= GW || y >= GH) continue;
+    const d = bot.plan[y * GW + x];
+    if (d >= 0 && d + Math.hypot(dx, dy) * 0.01 < bd) { bd = d + Math.hypot(dx, dy) * 0.01; bx = x; by = y; }
+  }
+  if (bx < 0) { bot.ban.set(f, clock + 5); bot.target = null; return; }   // たどり着けない
+  let mx = (bx + 0.5) * GRID - ham.x, my = (by + 0.5) * GRID - ham.y;
+  if (bd < 1) { mx = f.x - ham.x; my = f.y - ham.y; }
+  const m = Math.hypot(mx, my) || 1;
+  mx /= m; my /= m;
+  input.right = mx > 0.38; input.left = mx < -0.38; input.down = my > 0.38; input.up = my < -0.38;
+}
+function simulate(maxSec = 1800) {
+  reset(); started = true; bot.target = null; bot.ban.clear();
+  const STEP = 1 / 60;
+  for (let i = 0; i < maxSec * 60 && !cleared; i++) { botThink(STEP); update(STEP); }
+  return { cleared, time: mmss(cleared ? clearTime : time), sec: Math.round(cleared ? clearTime : time), eaten: eatenCount, log: LOG };
+}
+
+// ---------------- ループ ----------------
+if (touchUI) setTouchUI();
+reset();
+let last = performance.now(), acc = 0, slowFor = 0, fps = 60;
+const STEP = 1 / 60;
+function frame(now) {
+  const real = Math.min(0.25, (now - last) / 1000);
+  acc += Math.min(0.1, real) * SIM_SPEED; last = now;
+  // 動きが重い（コマ数が LIGHT_FX_FPS を2秒以上下回り続けた）ときは、光や輪などの演出を軽くして、なめらかさを優先する
+  if (real > 0) fps = lerp(fps, 1 / real, 0.05);
+  if (!lowFx && !document.hidden && fps < C.LIGHT_FX_FPS) { if ((slowFor += real) > 2) lowFx = true; } else slowFor = 0;
+  for (let n = 0; acc >= STEP && n < 3000; n++) { if (BOT) botThink(STEP); update(STEP); acc -= STEP; }
+  render();
+  if (!volEl.hidden && now > volHideAt) volEl.hidden = true;
+  updatePad();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
