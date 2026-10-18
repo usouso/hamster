@@ -102,14 +102,12 @@ const CONFIG = {
   BODY_RATE: 0.024,
   TEETH_RATE: 0.024,
 
-  // 頬袋
-  //   容量 = POUCH_BASE + POUCH_PER_BODY × 体の大きさ  （入れた食べ物の「大きさ」の合計で数える）
-  POUCH_BASE: 0,
+  // 頬袋：上限はなく、いつでも食べられる（14回目で決めた）
+  //   入れた食べ物の「大きさ」の合計が POUCH_PER_BODY × 体の大きさ くらいで、頬が「ふだんのふくらみ」になる（見た目だけ）
   POUCH_PER_BODY: 4.5,
-  // 消化：動きながら、頬袋の古いものから少しずつ消化していく（待ち時間なし）
+  // 消化：動きながら、頬袋の古いものから少しずつ消化していく（待ち時間なし。たくさんたまっても、速くはならない）
   //   1秒に消化できる量 = DIGEST_SPEED × 体の大きさ （食べ物の「大きさ」の単位）
-  DIGEST_SPEED: 1.1,
-  DIGEST_FULL_BOOST: 2,     // 頬袋がいっぱいのときは、消化がこの倍速くなる
+  DIGEST_SPEED: 1.5,        // （14回目は 1.1 で、たまると2倍。上限なしで倍速をなくしたので、サビの前の育ち具合が前の「満腹ON」と同じくらいになるように）
 
   // 食べ物  [大きさ, 硬さ, 個数, スタート地点からこの距離(px)以内に置く(0 なら全体), 見た目]
   //   見た目は硬さの割合で決まる（やわらかい＝薄い色の四角、硬い＝宝石）。'shell' は硬い殻に入った物
@@ -178,13 +176,30 @@ const CONFIG = {
   CHAIN: true,
   CHAIN_RANGE: 100,         // 食べた宝石から、この距離(px)以内の同じかたまりの宝石
   CHAIN_SFX_GAP: 0.07,      // 効果音モードのときの間隔（秒）
-  // 宝石の列・かたまりを取り切ったときの、背景のバンドの応え（太鼓のフィルとシンバル。G キーで切り替え）
-  //   'full'：前のまま（取り切るたびに）
-  //   'less'：4小節のまとまりの頭だけ（頭まで1小節以内に取り切ったとき。4小節に1回まで）。サビでは鳴らさない。かたまりの花が開く和音は、半分の大きさで短く
-  //   'none'：鳴らさない。かたまりは、花が開く和音の代わりに、きらっ（見た目）と小さな音だけ
-  ANSWER_MODE: 'less',
-  // 頬袋の上限（F キーで切り替え）。false なら上限なし：いつでも食べられる（消化と成長は今のまま。頬のふくらみは見た目だけ上限で止まる）
-  POUCH_LIMIT: false,
+  // 宝石の列・かたまりを取り切っても、背景のバンドは応えない（14回目で「無」に決めた）。かたまりは、きらっ（見た目）と小さな音だけ
+  // 演奏（V キーで入り切り。表示は「演奏ON」「演奏OFF」）：自分が鳴らしているとわかる仕組み。切ると14回目のまま
+  //   ① サビ（食べ放題）と締め（噴き出すまで）の伴奏の厚さは「勢い」で決まる。食べると勢いが上がり、食べないと下がる
+  //      勢いが 0 のときは、土台（base）とバスドラム・ハイハットだけが残る。サビに入った瞬間は、勢い 1（いちばん厚い）から始まる
+  //   ② 食べた音が鳴る瞬間に、食べた場所から音符の形の光が飛び出す（どの場面でも。果物はあたたかい色、宝石は冷たい色。大きな音ほど大きく）
+  //   ③ サビの間は、自分の音が鳴る瞬間だけ、伴奏をほんの少し下げる（自分の音を聞き分けやすく）
+  PLAY: true,
+  DRIVE_PER_EAT: 0.5,       // 1つ食べるごとに上がる勢い（0〜1）
+  DRIVE_HOLD: 2,            // 最後に食べてから、この拍数は勢いをそのまま
+  DRIVE_FADE: 2,            // そのあと、この拍数で 0 まで下がる（食べるのを1小節やめると、薄くなる）
+  DRIVE_KEEP: 0.7,          // 勢いが 0 のときも残す刻み（土台・バスドラム・ハイハット）の大きさ（1＝そのまま）
+  DRIVE_FINALE_MIN: 0.2,    // 締めのテーマの間のバンドは、勢いが 0 でもこの厚さは残す（テーマのメロディそのものは、いつもそのまま）
+  DUCK: 0.82,               // 自分の音が鳴る瞬間の伴奏の大きさ（1＝下げない。0.82 ≒ −1.7dB）
+  // 特別な食べ物（B キーで入り切り。表示は「特別ON」「特別OFF」）：サビに入った瞬間から、空（画面の上の外）からハムスターのまわりに降ってくる。切ると14回目のサビのまま
+  //   何が降るかは、サビに入った瞬間の体と歯の比で決まる。どれも1個＝宝1個（ふつうの物と同じ）。違うのは鳴る音だけ
+  //     体が歯の SPECIAL_LEAN 倍以上：大きな実（その曲のバスドラムとベースで、低くて太いフレーズ）
+  //     歯が体の SPECIAL_LEAN 倍以上：結晶（テーマのメロディを高い音域で、宝石の列の続きから）
+  //     その間：大きな実と結晶が半分ずつ。SPECIAL_RAINBOW の割合で、両方の音が重なる虹の実
+  //   降る数 ＝ SPECIAL_PER_GROWTH ×（サビに入った瞬間の 体 ＋ 歯）。半分を最初の2小節で（1拍ごとに）、残りをサビの間に1小節ごとに
+  SPECIAL: true,
+  SPECIAL_LEAN: 1.2,
+  SPECIAL_RAINBOW: 0.1,
+  SPECIAL_PER_GROWTH: 1.5,
+  SPECIAL_FALL: 1.5,        // 空から落ちてくる秒数（ゆっくりめ。落ちる場所には、先に影と輪が出る。画面は揺らさない）
   BOUNCE_MIN_SPEED: 60,     // この速さ以上でぶつかったときだけ弾く（沿って滑っているときは弾かない）
   CORNER_ASSIST: 0.8,       // 物の角の近く（体の半径のこの割合以内）でぶつかったら、角を回り込むように横へ流す
   // マウス・タッチ：押している間（指を置いている間）、その位置に向かって走る（追いかけ）。キーボードの操作はいつでも使える
@@ -316,6 +331,7 @@ const C = CONFIG;
 //    rhythm：締めで、着地までの7つの音の長さ（16分音符。テーマの候補1のとき）  stretch：候補2〜4の長さを何倍にするか  stab：締めで、1つの音をこの16分音符ごとに刻み直す（0＝伸ばす）
 //    grid・gap・rowStab：宝石の列の音をそろえる刻み・次の音までの最低の間隔・1つの音を刻み直す回数（16分音符）
 //    row・rowLand・lead・land：鳴らす楽器の一覧 [楽器, 音, 大きさ, 長さ（秒。負の数は音の長さの何倍か）, 細かい指定]
+//    end：締めの最後（上がる3音 up と、最後の宝が巣に着く瞬間の1音 top）の楽器。oct：高すぎて細く聞こえる楽器は、全体をこの半音だけ下げる（-12＝1オクターブ下）
 //      音：テーマの音（着地は主音）からの半音の数／['R', '5', …] 和音の音（下の n と同じ書き方）／'chord' 和音の音を全部／null 音の高さなし
 //  刻みの一覧（base・body・teeth・groove・chorus・build・finale）：[楽器, 譜面, 音の選び方]
 //    譜面：16分音符1つを1文字、1小節16文字（くり返す）。x 鳴らす X 強く o 弱く g ごく弱く 1〜9 強さ（0.1〜0.9） . 休み
@@ -327,10 +343,10 @@ const C = CONFIG;
 //    teeth：歯が育つと1段ずつ増える、高くてきらきらした層（5段：ハイハット・リード・飾り…）
 //    groove：果物を続けて食べると一時的に加わる、リズムとベースの層  chorus：サビで足す  build：ため（「シューッ」は共通）
 //    finale：締め ― hit 受けの1打、roll テーマの前の小太鼓（テーマが1小節のとき）、band テーマの間のバンド、fill 着地の直前のフィル
-//  kit：バンドの応え（列・かたまりを食べ切ったとき）の楽器。toms はフィルの太鼓の高さ(Hz)
+//  kit：その曲の太鼓とベース（サビの頭の「ジャン」と、特別な食べ物「大きな実」のフレーズ。tom・toms・comp は、前のバンドの応えの楽器で、今は使っていない）
 //  ev：出来事の音の楽器 ― fruit 果物（リズムとベース）、hard 殻つきなどの硬い物、blob・cluster 宝石のかたまり、bump 取れない物に当たった
 //    [[大きさが足りない楽器, 高さ, 大きさの倍率], [歯が足りない楽器, 高さ, 倍率]]、growB・growT 体・歯が伸びた、unlock 新しく食べられる、sparkle 巣に積もる
-//  mix：出来事の音（fruit・hard・blob・grow・unlock・sparkle）の大きさの倍率。楽器によって聞こえる大きさがちがうので、1曲目と同じくらいに聞こえるようにそろえる
+//  mix：出来事の音（fruit・hard・blob・grow・unlock・sparkle、特別な食べ物の big・crystal）の大きさの倍率。楽器によって聞こえる大きさがちがうので、1曲目と同じくらいに聞こえるようにそろえる
 // ============================================================
 const SONGS = [
   { // 1曲目：今までの曲。マリンバとベルのポップ
@@ -343,7 +359,8 @@ const SONGS = [
       rowLand: [['glass', 0, 0.07], ['bell', -12, 0.035, 1.4], ['glass', 12, 0.012, 0, { dt: 0.03 }], ['tri', -24, 0.03, 0.9]],
       lead: [['marimba', 0, 0.065, 0, { w: 0.2 }], ['glass', 12, 0.024], ['bell', 0, 0.018, -1.4, { long: true }]],
       land: [['marimba', 0, 0.07, 0, { w: 0.6 }], ['glass', 12, 0.035], ['bell', 0, 0.04, 3], ['padTri', 'chord', 0.01, 3.2, { r: [48, 84], atk: 0.02 }],
-        ['marimba', ['R,,', '5,,', '3,'], 0.045, 0, { w: 0.8 }], ['glass', ['5', "R'", '9'], 0.022, 0, { dt: 0.03 }], ['sine', ['R,,,'], 0.085, 3], ['kick', null, 0.14], ['crash', null, 0.045, 2.6]] },
+        ['marimba', ['R,,', '5,,', '3,'], 0.045, 0, { w: 0.8 }], ['glass', ['5', "R'", '9'], 0.022, 0, { dt: 0.03 }], ['sine', ['R,,,'], 0.085, 3], ['kick', null, 0.14], ['crash', null, 0.045, 2.6]],
+      end: { oct: -12, up: [['marimba', 0, 0.035, 0, { w: 0.3 }], ['bell', 0, 0.009, 0.9]], top: [['marimba', 0, 0.042, 0, { w: 0.6 }], ['bell', 0, 0.026, 2.0], ['glass', 12, 0.022]] } },
     base: [['padTri', 'x.......x.......', { chord: true, r: [55, 67], len: 7.6, v: 0.009 }], ['kick', 'x.......x.......', { v: 0.075, in: 'iab' }], ['kick', 'x...x...x...x...', { v: 0.1, in: 'kc' }]],
     body: [
       [['bassTri', 'x.....o.x...o...', { n: ['R', '5'], len: [3.6, 1.8], v: 0.07 }]],                                                     // ベース
@@ -375,7 +392,7 @@ const SONGS = [
     ev: { fruit: 'marimba', hard: 'glass', blob: 'bell', cluster: 'glass', bump: [['wood', 55], ['wood', 73]], growB: 'marimba', growT: 'glass', unlock: 'bell', sparkle: 'glass' },
   },
   { // 2曲目：シティポップ。エレピの厚い7th・9thの和音、チョッパーベース、ギターのカッティング、16分のグルーヴ
-    id: 'city', name: '夜の街', short: '夜の街', band: { body: ['キック', 'ベース', 'エレピ', 'スラップ', '低い和音'], teeth: ['ハイハット', 'ギター', 'シェイカー', '鐘', 'きらきら'] }, bpm: 110, swing: 0.54, swingUnit: 16, key: 2, scale: [0, 2, 4, 7, 9], gain: 0.7, mix: { grow: 0.8 },
+    id: 'city', name: '夜の街', short: '夜の街', band: { body: ['キック', 'ベース', 'エレピ', 'スラップ', '低い和音'], teeth: ['ハイハット', 'ギター', 'シェイカー', '鐘', 'きらきら'] }, bpm: 110, swing: 0.54, swingUnit: 16, key: 2, scale: [0, 2, 4, 7, 9], gain: 0.7, mix: { grow: 0.8, big: 0.73, crystal: 1.12 },
     look: { ground: '#b9b3cf', edge: '#76709a', bg: '#1b1a2c', glow: '255,130,205' },
     chords: { intro: ['G△9', 'F#7b9', 'Bm9', 'D9'], a: ['G△9', 'F#7b9', 'Bm9', 'D9'], b: ['Em9', 'A13', 'F#m7', 'Bm9'], build: ['Em9', 'A13'],
       chorus: ['G△9', 'F#7b9', 'Bm9', 'D9'], hold: 'D△9', theme: ['G△9', 'A13'], land: 'D△9', calm: ['D△9', 'G△9'] },   // IV△7 → III7 → VIm7 → I7
@@ -384,7 +401,8 @@ const SONGS = [
       rowLand: [['lead', 0, 0.035, 0.5], ['epiano', 'chord', 0.012, 1.2, { r: [57, 76] }], ['epBell', 12, 0.01], ['slap', -24, 0.05, 0.4]],
       lead: [['lead', 0, 0.048, -0.95], ['epiano', -12, 0.023, -1]],
       land: [['lead', 0, 0.055, 1.4], ['epiano', 'chord', 0.022, 2.5, { r: [50, 76] }], ['padWarm', 'chord', 0.01, 3.2, { r: [55, 79] }], ['slap', ['R,,'], 0.1, 0.8],
-        ['epBell', ['5', "R'", '9'], 0.016, 0, { dt: 0.04 }], ['kickTight', null, 0.13], ['crash', null, 0.04, 2.4]] },
+        ['epBell', ['5', "R'", '9'], 0.016, 0, { dt: 0.04 }], ['kickTight', null, 0.13], ['crash', null, 0.04, 2.4]],
+      end: { oct: -12, up: [['lead', 0, 0.016, 0.45], ['epiano', 0, 0.012, 0.8]], top: [['epiano', 0, 0.07, 2.0], ['lead', 0, 0.024, 1.4], ['epBell', 12, 0.02]] } },
     base: [['epiano', 'x...............', { chord: true, r: [57, 74], len: 14, v: 0.011 }], ['rim', '....x.......x...', { v: 0.018 }]],
     body: [
       [['kickTight', 'x.....x...x.....', { v: 0.1 }]],                                                                              // キック
@@ -415,7 +433,7 @@ const SONGS = [
     ev: { fruit: 'slapPop', hard: 'epBell', blob: 'epiano', cluster: 'epBell', bump: [['slapDead', 40, 3], ['rim', 0, 3.5]], growB: 'epiano', growT: 'epBell', unlock: 'epBell', sparkle: 'epBell' },
   },
   { // 3曲目：エレクトロスウィング。8分音符がはねる、4つ打ちのキックと手拍子、ウッドベース、ミュートしたトランペットとクラリネット。短調
-    id: 'swing', name: '古いダンスホール', short: 'ホール', band: { body: ['キック', 'ウッドベース', 'ピアノ', '低い木管', 'ホーン'], teeth: ['手拍子', 'トランペット', 'クラリネット', 'ライド', 'ビブラフォン'] }, bpm: 124, swing: 0.64, swingUnit: 8, key: 2, scale: [0, 3, 5, 7, 10], gain: 0.63, mix: { blob: 1.5, fruit: 0.7 },
+    id: 'swing', name: '古いダンスホール', short: 'ホール', band: { body: ['キック', 'ウッドベース', 'ピアノ', '低い木管', 'ホーン'], teeth: ['手拍子', 'トランペット', 'クラリネット', 'ライド', 'ビブラフォン'] }, bpm: 124, swing: 0.64, swingUnit: 8, key: 2, scale: [0, 3, 5, 7, 10], gain: 0.63, mix: { blob: 1.5, fruit: 0.7, big: 0.86, crystal: 1.27 },
     look: { ground: '#cdbf9e', edge: '#8a7752', bg: '#231b13', glow: '255,205,110' },
     chords: { intro: ['Dm6', 'A7'], a: ['Dm6', 'Gm6', 'A7', 'Dm6'], b: ['Gm6', 'Dm6', 'E7', 'A7'], build: ['Gm6', 'A7'],
       chorus: ['Dm6', 'Bb7', 'A7', 'Dm6'], hold: 'Dm6', theme: ['Gm6', 'A7'], land: 'Dm6', calm: ['Dm9', 'Gm9'] },
@@ -424,7 +442,8 @@ const SONGS = [
       rowLand: [['trumpet', 0, 0.045, 0.55], ['vibes', 12, 0.02], ['pianoStab', 'chord', 0.016, 0, { r: [57, 72] }], ['upright', -24, 0.08, 0.6]],
       lead: [['trumpet', 0, 0.1, -0.9], ['clarinet', -12, 0.04, -0.9]],
       land: [['trumpet', 0, 0.05, 1.2], ['clarinet', -12, 0.022, 1.2], ['pianoStab', 'chord', 0.022, 0, { r: [50, 74] }], ['brass', 'chord', 0.01, 2.2, { r: [57, 74] }],
-        ['upright', ['R,,'], 0.1, 1], ['vibes', ['5', "R'", '9'], 0.016, 0, { dt: 0.04 }], ['kickSwing', null, 0.13], ['crash', null, 0.04, 2.2]] },
+        ['upright', ['R,,'], 0.1, 1], ['vibes', ['5', "R'", '9'], 0.016, 0, { dt: 0.04 }], ['kickSwing', null, 0.13], ['crash', null, 0.04, 2.2]],
+      end: { oct: -12, up: [['trumpet', 0, 0.042, 0.4], ['clarinet', -12, 0.017, 0.4]], top: [['trumpet', 0, 0.05, 1.7], ['clarinet', -12, 0.024, 1.7], ['vibes', 0, 0.03]] } },
     base: [['pianoStab', 'x.....x.........', { chord: true, r: [57, 69], v: 0.022 }], ['brush', '....x.......x...', { v: 0.03 }], ['hatSwing', '..x...x...x...x.', { v: 0.009 }]],
     body: [
       [['kickSwing', 'x...x...x...x...', { v: 0.1 }]],                                                                               // 4つ打ちのキック
@@ -455,7 +474,7 @@ const SONGS = [
     ev: { fruit: 'upright', hard: 'vibes', blob: 'pianoStab', cluster: 'vibes', bump: [['upright', 33, 1.7], ['woodblock', 0]], growB: 'pianoStab', growT: 'vibes', unlock: 'vibes', sparkle: 'vibes' },
   },
   { // 4曲目：サイケデリックトランス。4つ打ちの間を16分のベースが転がる、フィルターがうねるアシッド、不思議な響きの音階
-    id: 'psy', name: 'ふしぎな森', short: '森', band: { body: ['キック', 'ベース', 'パッド', 'アシッド', 'タム'], teeth: ['裏ハット', 'ふしぎ音', 'ハイハット', '手拍子', 'きらきら'] }, bpm: 142, swing: 0.5, swingUnit: 8, key: 4, scale: [0, 1, 4, 5, 7, 8, 10], gain: 1.2, mix: { fruit: 1.3, blob: 1.35 },
+    id: 'psy', name: 'ふしぎな森', short: '森', band: { body: ['キック', 'ベース', 'パッド', 'アシッド', 'タム'], teeth: ['裏ハット', 'ふしぎ音', 'ハイハット', '手拍子', 'きらきら'] }, bpm: 142, swing: 0.5, swingUnit: 8, key: 4, scale: [0, 1, 4, 5, 7, 8, 10], gain: 1.2, mix: { fruit: 1.3, blob: 1.35, big: 0.6, crystal: 1.64 },
     look: { ground: '#9fc4bd', edge: '#4e837d', bg: '#150d24', glow: '190,120,255' },
     chords: { intro: ['E', 'E'], a: ['E', 'E', 'F', 'E'], b: ['Am', 'F', 'Dm', 'E'], build: ['Dm', 'F'], chorus: ['E', 'E', 'F', 'E'], hold: 'E', theme: ['E', 'F'], land: 'E', calm: ['E', 'Am'] },
     theme: { mode: 'phrygianDom', rhythm: [4, 4, 4, 8, 4, 4, 8], stretch: 2, stab: 1, grid: 2, gap: 2, rowStab: 2,                                // うねる電子音で、16分音符に細かく刻む
@@ -463,7 +482,8 @@ const SONGS = [
       rowLand: [['acidLead', 0, 0.05, 0.5], ['supersaw', 'chord', 0.015, 0.6, { r: [64, 76] }], ['rollBass', -24, 0.1, 0.3]],
       lead: [['acidLead', 0, 0.05, -0.9], ['pluck', 12, 0.016]],
       land: [['acidLead', 0, 0.04, 1], ['supersaw', 'chord', 0.014, 1.6, { r: [52, 76] }], ['padSaw', 'chord', 0.01, 3.2, { r: [52, 71] }], ['rollBass', ['R,,'], 0.1, 0.6],
-        ['pluck', [7, 12, 13], 0.014, 0, { dt: 0.04 }], ['kickPsy', null, 0.14], ['crash', null, 0.045, 2.6]] },
+        ['pluck', [7, 12, 13], 0.014, 0, { dt: 0.04 }], ['kickPsy', null, 0.14], ['crash', null, 0.045, 2.6]],
+      end: { oct: -12, up: [['acidLead', 0, 0.035, 0.4]], top: [['supersaw', 0, 0.044, 1.9], ['acidLead', 0, 0.032, 1.4], ['pluck', 12, 0.024]] } },
     base: [['padSaw', 'x...............', { chord: true, r: [52, 64], len: 15.5, v: 0.007 }], ['acid', 'x.xx.x.xx.x.xx.x', { n: [0, 12, 1, 0, 7, 12, 0, 13, 0, 12], r: [40, 51], v: 0.011 }]],
     body: [
       [['kickPsy', 'x...x...x...x...', { v: 0.11 }]],                                                                                 // 4つ打ちのキック
@@ -494,14 +514,15 @@ const SONGS = [
     ev: { fruit: 'acid', hard: 'pluck', blob: 'supersaw', cluster: 'pluck', bump: [['zap', 40, 0.6], ['zap', 76, 0.55]], growB: 'acid', growT: 'pluck', unlock: 'pluck', sparkle: 'pluck' },
   },
   { // 5曲目：シュランツ。歪んだ重い4つ打ち、金属的なノイズのループ。ひたすら反復して高揚させる（音程は少なめ）
-    id: 'schranz', name: '真夜中の工場', short: '工場', band: { body: ['キック', 'うなり', '和音', '工場太鼓', '2連キック'], teeth: ['ハイハット', '金属音', 'ノイズ', '手拍子', 'キン'] }, bpm: 155, swing: 0.5, swingUnit: 8, key: -3, scale: [0, 3, 5, 7, 10], gain: 1, mix: { blob: 0.72 },
+    id: 'schranz', name: '真夜中の工場', short: '工場', band: { body: ['キック', 'うなり', '和音', '工場太鼓', '2連キック'], teeth: ['ハイハット', '金属音', 'ノイズ', '手拍子', 'キン'] }, bpm: 155, swing: 0.5, swingUnit: 8, key: -3, scale: [0, 3, 5, 7, 10], gain: 1, mix: { blob: 0.72, big: 0.55, crystal: 1.95 },
     look: { ground: '#b1b0ab', edge: '#6a6965', bg: '#101010', glow: '255,95,60' },
     chords: { intro: ['Am'], a: ['Am', 'Am', 'Am', 'Am'], b: ['Am', 'Am', 'F', 'G'], build: ['F', 'G'], chorus: ['Am', 'Am', 'Am', 'Am'], hold: 'Am', theme: ['F', 'G'], land: 'Am', calm: ['Am', 'F'] },
     theme: { mode: 'minor', rhythm: [4, 4, 4, 8, 4, 4, 8], stretch: 2, stab: 1, grid: 2, gap: 2, rowStab: 2,                                       // 歪んだ短い音の連打で
       row: [['stab', 0, 0.08, 0.06]],
       rowLand: [['stab', 0, 0.058, 0.3], ['stab', -12, 0.036, 0.3], ['rumble', -36, 0.1, 0.4]],
       lead: [['stab', 0, 0.063, 0.07], ['stab', -12, 0.034, 0.07]],
-      land: [['stab', 0, 0.035, 0.5], ['stab', ['R,', '5,'], 0.025, 0.5], ['rumble', ['R,,,'], 0.08, 1.2], ['metal', null, 0.02, 0.4], ['kickDist', null, 0.13], ['crashInd', null, 0.04, 2.4]] },
+      land: [['stab', 0, 0.035, 0.5], ['stab', ['R,', '5,'], 0.025, 0.5], ['rumble', ['R,,,'], 0.08, 1.2], ['metal', null, 0.02, 0.4], ['kickDist', null, 0.13], ['crashInd', null, 0.04, 2.4]],
+      end: { oct: -12, up: [['stab', 0, 0.028, 0.3], ['stab', -12, 0.018, 0.3]], top: [['stab', 0, 0.032, 1.8], ['stab', -12, 0.02, 1.8], ['ping', 12, 0.03], ['metal', null, 0.01, 0.3]] } },
     base: [['rumble', 'x...............', { n: ['R'], r: [33, 44], len: 15, v: 0.018 }], ['metal', '..x...x...x...x.', { v: 0.006 }]],
     body: [
       [['kickDist', 'x...x...x...x...', { v: 0.085 }]],                                                                              // 歪んだ重い4つ打ち
@@ -631,6 +652,8 @@ function enterPart(p) {
   if (p === 'build') say('もうすぐサビ！', '#ffe14a', 3);
   if (p === 'chorus') {                               // 食べ放題：広場の物が全部、大きさ・硬さに関係なく食べられる。頬袋はいくらでも入り、消化は止まる
     song.atChorus = { body: ham.body, teeth: ham.teeth, eaten: eatenCount };
+    drive.lv = 1; drive.at = audioNow();              // 演奏：サビは、いちばん厚い所から始まる（食べないと、1小節で薄くなる）
+    specialStart();                                   // 特別な食べ物：体と歯の比で種類を、育ち具合で数を決める
     for (const f of foods) { f.reviveIn = 0.001; }
     say('食べ放題！', '#ffe14a', 3);
     bandAll();                                        // バンドの顔ぶれ：全員が光って「全員集合！」
@@ -650,6 +673,7 @@ function songTick(dt) {
   if (song.part === 'chorus') {                       // サビ：拍に合わせて食べ物が降ってくる（テンポが速い曲は、ときどき1拍休んで、降る量をそろえる）
     const beat = Math.floor((song.t - P('chorus').from * barSec()) / beatSec());
     if (beat > song.rainBeat) { song.rainBeat = beat; if (Math.random() < Math.min(1, beatSec() / C.RAIN_EVERY)) rainFoods(); }
+    specialTick();                                    // 特別な食べ物が、空から降ってくる
   }
   if (song.part === 'finale' && !song.burst) {
     const land = landingStep() * sixteenth();         // 小節の頭なので、はね具合に関係なく
@@ -671,6 +695,48 @@ function rainFoods() {
     const [s, h, , , look] = pick(rest), f = spawnFood(s, h, false, false, 0, look);
     if (f) f.fall = true;
   }
+}
+// サビの特別な食べ物：サビに入った瞬間の体と歯の比で種類を、育ち具合（体＋歯）で数を決めて、拍ごとに空から降らせる
+const special = { mode: null, total: 0, first: 0, beat: -1, made: {}, eaten: {}, next: 0, k: 0 };
+const SPECIAL_LOOK = { big: { s: 3.4, h: 1.6, w: 62 }, crystal: { s: 1.4, h: 3.4, w: 50 }, rainbow: { s: 2.4, h: 2.4, w: 54 } };   // s・h は頬袋のふくらみ用（見た目だけ）
+function specialClear() { Object.assign(special, { mode: null, total: 0, first: 0, beat: -1, made: { big: 0, crystal: 0, rainbow: 0 }, eaten: { big: 0, crystal: 0, rainbow: 0 }, next: 0, k: 0 }); }
+function specialStart() {
+  specialClear();
+  if (!C.SPECIAL) return;
+  const b = ham.body, h = ham.teeth;
+  special.mode = b >= h * C.SPECIAL_LEAN ? 'big' : h >= b * C.SPECIAL_LEAN ? 'crystal' : 'mix';
+  special.total = Math.round(C.SPECIAL_PER_GROWTH * (b + h));
+  special.first = Math.ceil(special.total / 2);
+}
+function specialTick() {   // 最初の2小節（8拍）で半分を1拍ごとに、残りをそのあとの小節の頭ごとに
+  if (!special.mode || !C.SPECIAL) return;
+  const P0 = P('chorus'), bars = P0.to - P0.from, j = Math.floor((song.t - P0.from * barSec()) / beatSec() + 1e-6);
+  for (let b = special.beat + 1; b <= j; b++) {
+    let n = 0;
+    if (b < 8) n = Math.floor((b + 1) * special.first / 8) - Math.floor(b * special.first / 8);
+    else if (b % 4 === 0 && bars > 2) { const i = b / 4 - 2, m = bars - 2, rest = special.total - special.first; if (i < m) n = Math.floor((i + 1) * rest / m) - Math.floor(i * rest / m); }
+    for (let i = 0; i < n; i++) spawnSpecial(specialKind());
+  }
+  special.beat = Math.max(special.beat, j);
+}
+function specialKind() {
+  if (special.mode !== 'mix') return special.mode;
+  if (Math.random() < C.SPECIAL_RAINBOW) return 'rainbow';
+  return special.made.big <= special.made.crystal ? 'big' : 'crystal';
+}
+function spawnSpecial(type) {   // ハムスターのまわり（ほかの物と重ならない所）に、画面の上の外から
+  const L = SPECIAL_LOOK[type], w = L.w;
+  for (let tries = 0; tries < 80; tries++) {
+    const a = Math.random() * TAU, d = ham.r + w + 24 + Math.random() * 200;
+    const x = clamp(ham.x + Math.cos(a) * d, w / 2 + 8, C.FIELD_W - w / 2 - 8), y = clamp(ham.y + Math.sin(a) * d, w / 2 + 8, C.FIELD_H - w / 2 - 8);
+    if (onPile(x, y, w) || Math.hypot(x - ham.x, y - ham.y) < ham.r + w) continue;
+    if (foods.some(o => rectGap(o, { x, y, w }).gap < C.ITEM_SEP + 6)) continue;
+    const f = { s: L.s, h: L.h, w, x, y, boulder: false, look: type, special: type, seed: Math.random(), born: 0, fall: true, z0: y + 260,
+      flash: 0, shake: 0, msgCd: 0, hitCd: 0, edible: true, revive: 0, reviveIn: 0, cluster: 0, dim: 0 };
+    foods.push(f); special.made[type]++;
+    return f;
+  }
+  return null;
 }
 // 締め：主音の着地と同時に、頬袋の中身を全部、噴水や花火のように噴き出す。放物線を描いて巣（スタート地点）に降り注ぎ、宝の山に積もる
 function burst() {
@@ -740,11 +806,11 @@ function reset() {
   };
   ham.unlocked = edibleTypes();
   time = 0; clock = 0; started = BOT; songOver = false; digests = 0; eatenCount = 0; shake = 0; lastShakeAt = -99;
-  diag.fullBlock = 0; diag.chainStop = 0; diag.chainStopped.clear();
   Object.assign(song, { t: 0, live: false, part: null, burst: false, burstN: 0, chorusEaten: 0, atChorus: null, rainBeat: -1, times: {}, themeSent: false, result: null,
     nestShow: C.NEST_SHOW_SEC, stageUp: -1, key: S.key, stars: [false, false, false], starFx: [0, 0, 0], endAt: Infinity, calmFrom: Infinity, burstAt: -1, finalAt: Infinity });
-  bandReset(); motes = []; msg = null; msgQ.length = 0; fullCd = 0; ending.list = [];
-  mus.groove = 0; mus.grooveAt = -9; rowSnd.next = 0; rowSnd.mel = -1; bandAt = -9;
+  bandReset(); motes = []; msg = null; msgQ.length = 0; ending.list = [];
+  mus.groove = 0; mus.grooveAt = -9; rowSnd.next = 0; rowSnd.mel = -1;
+  noteFxs = []; drive.lv = 0; drive.at = -99; duckReset(); specialClear();
   document.body.style.background = S.look.bg;               // 広場の外の色も、曲に合わせて
   Object.assign(cam, { x: ham.x, y: ham.y, zoom: zoomFor(ham.body), lx: 0, ly: 0, vx: 0, vy: 0, wide: 0, fast: false });
   if (AC && soundMode === 'music' && !mus.timer) musicStart();
@@ -931,11 +997,6 @@ function edibleTypes() {
   for (const [s, h] of C.FOODS) if (s <= ham.body + EPS && h <= ham.teeth + EPS) set.add(s + '/' + h);
   return set;
 }
-const nominalCap = () => C.POUCH_BASE + C.POUCH_PER_BODY * ham.body;   // 頬袋のふだんの大きさ（目盛りと、消化が速くなる目安）
-const capacity = () => feast() || !C.POUCH_LIMIT ? Infinity : nominalCap();   // 食べられる上限：サビの間と、上限なし（POUCH_LIMIT が false）のときは、いくらでも入る
-// 動作確認用の数：頬袋がいっぱいのせいで食べられなかった物の数、かたまりの連鎖が頬袋のせいで途中で止まった回数
-const diag = { fullBlock: 0, chainStop: 0, chainStopped: new Set() };
-function noteFull(f) { if (f && !f.fullSeen) { f.fullSeen = true; diag.fullBlock++; } }
 
 // ハムスターが通り抜けるのに必要なすき間（px）
 const passWidth = () => hamD(ham.body) + C.PASS_MARGIN;
@@ -1066,7 +1127,7 @@ function rectDist(f, x, y) {
 
 // 画面に出す言葉：文は出さず、1〜2語だけ。画面の上の方に大きく太く、ぽんと出て、しばらく見せてから、ゆっくり消える
 //   同時に出すのは1つまで。今出ている言葉より大事（prio が大きい）なら入れかえ、同じくらい大事なら1つ2つ待たせる。それより軽い言葉は出さない
-let msg = null, fullCd = 0, motes = [];
+let msg = null, motes = [];
 const msgQ = [];
 const msgLife = () => C.MSG_HOLD + C.MSG_FADE + 0.2;
 function say(text, color = '#ffffff', prio = 1) {
@@ -1087,7 +1148,6 @@ function growFx(col, which) {
   for (let i = 0; i < 4; i++) motes.push({ x: ham.x + (Math.random() - 0.5) * ham.r, y: ham.y - ham.r * 0.4, vx: (Math.random() - 0.5) * 40, vy: -50 - Math.random() * 40, t: -i * 0.06, life: 0.8, col });
   hud['flash' + which] = 0.6;
 }
-function fullSay() { if (fullCd <= 0 && !feast()) { fullCd = 10; say('いっぱい！', '#ffd08a', 1); } }   // 頬袋がいっぱい（頬も赤く点滅する）
 
 // ---------------- 食べる・消化 ----------------
 function tryEat() {
@@ -1107,7 +1167,6 @@ function tryEat() {
     }
     return;
   }
-  if (fill() >= capacity()) { noteFull(best); fullSay(); return; }
   eat(best);
 }
 
@@ -1115,13 +1174,13 @@ function eat(f) {
   const fi = foods.indexOf(f);
   if (fi >= 0) foods.splice(fi, 1);
   eatenCount++;
-  if (feast()) song.chorusEaten++;
-  if (!f.boulder && !f.cluster) respawns.push({ s: f.s, h: f.h, look: f.look === 'shell' ? 'shell' : undefined, t: C.RESPAWN_SEC * (0.7 + Math.random() * 0.6) });
+  if (feast()) { song.chorusEaten++; driveUp(); }   // 演奏：食べると勢いが上がる
+  if (!f.boulder && !f.cluster && !f.special) respawns.push({ s: f.s, h: f.h, look: f.look === 'shell' ? 'shell' : undefined, t: C.RESPAWN_SEC * (0.7 + Math.random() * 0.6) });
   const left = ham.pouch.filter(it => it.cheek < 0).reduce((a, it) => a + it.s, 0);
   const right = ham.pouch.filter(it => it.cheek > 0).reduce((a, it) => a + it.s, 0);
   const cheek = left <= right ? -1 : 1;
   ham.pouch.push({
-    s: f.s, h: f.h, boulder: f.boulder, look: f.look, seed: f.seed, cheek,
+    s: f.s, h: f.h, boulder: f.boulder, look: f.look, special: f.special, seed: f.seed, cheek,
     w: f.w, w0: f.suck ? f.w * 0.35 : f.w, rot: (Math.random() - 0.5) * 0.9,
     lx: -ham.r * 0.1 + (Math.random() - 0.5) * 4, ly: cheek * ham.r * 0.8,
     fly: 0, fx: f.x, fy: f.y, left: 1, landed: false,
@@ -1129,20 +1188,21 @@ function eat(f) {
   // 手触り：大きい物ほど大きく弾み、大きい音（触れて食べても同じ）。自分に近い大きさの物だけ画面も揺れる
   const ratio = clamp(f.s / ham.body, 0, 1);
   squash(ham.face, lerp(C.SQUASH_EAT_SMALL, C.SQUASH_EAT_BIG, ratio));
-  if (ratio >= C.SHAKE_BIG_FROM && clock - lastShakeAt >= C.SHAKE_BIG_COOLDOWN) { shake = Math.max(shake, C.SHAKE_BIG); lastShakeAt = clock; }
+  if (!f.special && ratio >= C.SHAKE_BIG_FROM && clock - lastShakeAt >= C.SHAKE_BIG_COOLDOWN) { shake = Math.max(shake, C.SHAKE_BIG); lastShakeAt = clock; }
   rings.push({ x: f.x, y: f.y, r0: f.w * 0.5, grow: 10 + f.w * 0.4, t: 0, life: 0.22, width: 2.5, color: '255,250,220' });
   if (f.cluster) groupEat(f, ratio);
-  else sfxEat(ratio, kindOf(f.s, f.h));
+  else if (f.special) specialEat(f);
+  else sfxEat(ratio, kindOf(f.s, f.h), f.x, f.y);
 }
 // 宝石の列・かたまりの一つを食べた。最後の一つなら、締めの音（列）／完成の和音ときらっ（かたまり）を鳴らして、丸ごと別の場所に生やす
 function groupEat(f, ratio) {
   const g = groups[f.cluster];
-  if (!g) return sfxEat(ratio, 'hard');
+  if (!g) return sfxEat(ratio, 'hard', f.x, f.y);
   g.eaten++; g.sx += f.suck ? f.suck.x0 : f.x; g.sy += f.suck ? f.suck.y0 : f.y;   // かたまりのあった場所（吸い込まれた物は、もとの場所）
   const done = !foods.some(o => o.cluster === f.cluster);
   if (AC && C.SOUND_VOLUME > 0) {
     if (soundMode === 'music') { tick(); if (!mus.timer) musicStart(); }
-    if (g.kind === 'row') rowNote(g, done); else blobNote(g, done, f.cluster, f.chain ? f.chain.snd : undefined);
+    if (g.kind === 'row') rowNote(g, done, f.x, f.y); else blobNote(g, done, f.cluster, f.chain ? f.chain.snd : undefined, f.x, f.y);
   } else if (done && g.kind === 'blob') sparks.push({ x: g.sx / g.eaten, y: g.sy / g.eaten, t: 0, life: 0.8, s: 8 + 3 * g.n });
   if (g.kind === 'blob' && C.CHAIN && !f.chain && !done) startChain(f);
   if (done) {
@@ -1167,10 +1227,7 @@ function startChain(f) {
 function chainTick(canMunch) {
   for (const f of foods) {
     if (!f.chain || f.suck) continue;
-    if (!canMunch || !f.edible || !C.CHAIN || (!feast() && fill() >= capacity())) {   // 食べられないとき・頬袋がいっぱいなら、そこで止まる
-      if (canMunch && C.CHAIN && fill() >= capacity() && !diag.chainStopped.has(f.cluster)) { diag.chainStopped.add(f.cluster); diag.chainStop++; }
-      f.chain = null; continue;
-    }
+    if (!canMunch || !f.edible || !C.CHAIN) { f.chain = null; continue; }   // 食べられないときは、そこで止まる
     if (clock >= f.chain.at - C.SUCK_TIME) f.suck = { t: 0, x0: f.x, y0: f.y };
   }
 }
@@ -1384,7 +1441,10 @@ function update(dt) {
 
   for (const f of foods) {
     f.edible = canEat(f);
-    if (f.born < 1) f.born = Math.min(1, f.born + dt / (f.fall ? 0.55 : 0.35));   // 降ってくる物は、ゆっくり落ちてくる
+    if (f.born < 1) {                                       // 降ってくる物は、ゆっくり落ちてくる（特別な食べ物は、もっとゆっくり。着いたら輪が広がる）
+      f.born = Math.min(1, f.born + dt / (f.special ? C.SPECIAL_FALL : f.fall ? 0.55 : 0.35));
+      if (f.special && f.born >= 1) rings.push({ x: f.x, y: f.y, r0: f.w * 0.5, grow: 26 + f.w * 0.6, t: 0, life: 0.5, width: 3, color: '255,255,255' });
+    }
     if (f.flash > 0) f.flash -= dt;
     if (f.pop > 0) f.pop = Math.max(0, f.pop - dt / 0.45);
     if (f.reviveIn > 0 && (f.reviveIn -= dt) <= 0) {        // 取れるようになった物に、色がぱっと戻る
@@ -1415,16 +1475,14 @@ function update(dt) {
   if (canMunch) {
     for (const f of foods.slice()) {
       if (f.born < 1 || f.suck || !(eatMode === 'B' ? f.edible : canTouchEat(f)) || rectDist(f, ham.x, ham.y) >= ham.r) continue;
-      if (fill() >= capacity()) { noteFull(f); break; }
       eat(f);
     }
   }
   chainTick(canMunch);                   // かたまりの連鎖の吸い込み
   suckFoods(dt, canMunch);               // 吸い寄せ
-  if (canMunch && eatMode === 'B' && !feast() && fill() >= capacity()) fullSay();
   // 消化：頬袋に入ったものを、古いものから少しずつ消化する（動きながら進む）。サビの間は止まって、頬袋にたまり続ける
   if (!songOver && !feast() && !song.burst) {
-    let budget = C.DIGEST_SPEED * ham.body * dt * (fill() >= nominalCap() ? C.DIGEST_FULL_BOOST : 1);   // ふだんの大きさまでたまったら、消化が速くなる（上限なしでも同じ）
+    let budget = C.DIGEST_SPEED * ham.body * dt;
     while (budget > 0) {
       const it = ham.pouch.find(p => p.landed);
       if (!it) break;
@@ -1460,7 +1518,6 @@ function update(dt) {
     if ((r.t -= dt) <= 0) { respawns.splice(i, 1); respawnFood(r); }
   }
   msgTick(dt);
-  if (fullCd > 0) fullCd -= dt;
   for (const k of ['flashB', 'flashT']) if (hud[k] > 0) hud[k] = Math.max(0, hud[k] - dt);
   for (const m of motes) { m.t += dt; if (m.t > 0) { m.x += m.vx * dt; m.y += m.vy * dt; } }
   motes = motes.filter(m => m.t < m.life);
@@ -1471,6 +1528,7 @@ function update(dt) {
   rings = rings.filter(g => g.t < g.life);
   for (const k of sparks) k.t += dt;
   sparks = sparks.filter(k => k.t < k.life);
+  noteFxTick(dt);                        // 演奏：鳴った音の、音符の光
   // 噴き出した物：放物線で巣へ。着いたら宝の山に積もって、ドの和音のきらきらが上から下へ
   endingTick();                          // 効果音モードの、締めの最後の音
   for (const p of flyers) { p.t = song.t - p.start; if (p.t >= p.T) { p.done = true; nestAdd(p); if (!p.last) rainNote(); } }   // 最後の宝は、積もる音の代わりに最後の1音
@@ -1531,15 +1589,12 @@ const ptrAim = () => { [ptr.wx, ptr.wy] = toWorld(ptr.sx, ptr.sy); };
 // 吸い寄せ：近くの食べられる物が、小さくなりながら口へすーっと飛んできて、口に届いたら食べる
 const suckRange = () => Math.max(C.SUCK_MIN, ham.r * (touchUI ? C.SUCK_RANGE_TOUCH : C.SUCK_RANGE));
 function suckFoods(dt, start) {
-  let inflight = 0;
-  for (const f of foods) if (f.suck) inflight += f.s;
   if (start) {
     const range = suckRange();
     for (const f of foods) {
       if (f.suck || f.boulder || f.born < 1 || !(eatMode === 'B' ? f.edible : canTouchEat(f))) continue;
       if (rectDist(f, ham.x, ham.y) - ham.r > range) continue;
-      if (fill() + inflight >= capacity()) { noteFull(f); break; }   // 頬袋がいっぱいなら吸わない
-      f.suck = { t: 0, x0: f.x, y0: f.y }; inflight += f.s;
+      f.suck = { t: 0, x0: f.x, y0: f.y };
     }
   }
   const mx = ham.x + Math.cos(ham.face) * ham.r * 0.8, my = ham.y + Math.sin(ham.face) * ham.r * 0.8;   // 口（体の大きさに合わせて）
@@ -1633,6 +1688,7 @@ function render() {
     ctx.beginPath(); ctx.arc(k.x, k.y, k.s * (0.6 + 1.6 * e), 0, TAU); ctx.stroke();
     ctx.globalAlpha = 1;
   }
+  drawNoteFx();                             // 演奏：鳴った音の、音符の光
   ctx.globalAlpha = 1;
   ctx.restore();
 
@@ -1656,16 +1712,10 @@ function render() {
   if (!started && !songOver && !helpOpen) drawStartHint();
   else if (touchUI && (!AC || AC.state !== 'running') && !songOver) drawSpeaker(ax + aw / 2, ay + ah - 34, true);   // スマホ：画面に触れるまで音を出せない
 }
-// 上の目盛り：果物（体）・宝石（歯）・頬袋の絵と目盛り、★の目盛り。文字は曲名と巣の数だけ
+// 上の目盛り：果物（体）・宝石（歯）の絵と目盛り、★の目盛り。文字は曲名と巣の数だけ
 const NEED_FRUIT = { look: 'soft', s: 5.5, h: 1, seed: 0.37 }, NEED_GEM = { look: 'gem', s: 1, h: 5, seed: 0.61 };
-function iconPouch(x, y, s) {   // 頬袋：ほっぺがふくらんだハムスターの顔
-  ctx.strokeStyle = '#5b3a1e'; ctx.lineWidth = 1.2;
-  for (const k of [-1, 1]) { ctx.fillStyle = '#f6cf9e'; ctx.beginPath(); ctx.arc(x + k * s * 0.27, y + s * 0.1, s * 0.3, 0, TAU); ctx.fill(); ctx.stroke(); }
-  ctx.fillStyle = '#e9a35b'; ctx.beginPath(); ctx.arc(x, y - s * 0.06, s * 0.3, 0, TAU); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = '#222'; for (const k of [-1, 1]) { ctx.beginPath(); ctx.arc(x + k * s * 0.11, y - s * 0.12, s * 0.055, 0, TAU); ctx.fill(); }
-}
 function drawHUD(W, compact) {
-  const fl = fill(), cap = feast() ? Infinity : nominalCap(), full = C.POUCH_LIMIT && fl >= cap, inf = !isFinite(cap), G = C.GROW_GOAL, oy = 22;   // 上の帯の下に（上限なしのときも、目盛りはふだんの大きさで。赤いふちは出さない）
+  const G = C.GROW_GOAL, oy = 22;   // 上の帯の下に
   const bar = (x, y, v, max, color, flash, warn, bw, bh) => {
     const p = clamp(v / max, 0, 1);
     ctx.fillStyle = '#3a3a3a'; ctx.fillRect(x, y - bh / 2, bw, bh);
@@ -1674,19 +1724,16 @@ function drawHUD(W, compact) {
     ctx.strokeStyle = warn ? ((clock * 3) % 1 < 0.5 ? '#ff6a5a' : '#8a3a30') : '#888'; ctx.lineWidth = warn ? 2 : 1; ctx.strokeRect(x, y - bh / 2, bw, bh);
   };
   const num = (t, x, y, fs) => { ctx.font = `600 ${fs}px ${FONT}`; ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(t, x, y); };
-  const pouchCol = inf ? '#ffd95a' : full ? '#ff9a6a' : '#f6cf9e', pouchTxt = inf ? '∞' : fl.toFixed(1);
   if (compact) {                    // スマホ・小さな窓：2列に詰める
     const cw = (W - 20) / 2, isz = 16, bw = clamp(cw - isz - 8 - 34, 36, 190), y1 = oy + 13, y2 = oy + 33;
     paintFood(NEED_FRUIT, 10 + isz / 2, y1, isz, 0); bar(10 + isz + 6, y1, ham.body, G, '#e9a35b', hud.flashB, false, bw, 10); num(ham.body.toFixed(1), 10 + isz + 10 + bw, y1, 12);
     paintFood(NEED_GEM, 10 + cw + isz / 2, y1, isz * 0.9, 0); bar(10 + cw + isz + 6, y1, ham.teeth, G, '#8fc8ff', hud.flashT, false, bw, 10); num(ham.teeth.toFixed(1), 10 + cw + isz + 10 + bw, y1, 12);
-    iconPouch(10 + isz / 2, y2, isz); bar(10 + isz + 6, y2, inf ? 1 : fl, inf ? 1 : cap, pouchCol, 0, full && !inf, bw, 10); num(pouchTxt, 10 + isz + 10 + bw, y2, 12);
-    drawStars(10 + cw + isz + 6, y2, bw, 9);
+    drawStars(10 + isz + 6, y2, cw + bw, 9);   // ★の目盛り：2列ぶんの幅で
   } else {
     const x0 = 16, isz = 20, bw = 170, y1 = oy + 20, y2 = oy + 44, x1 = 330;
     paintFood(NEED_FRUIT, x0 + isz / 2, y1, isz, 0); bar(x0 + isz + 8, y1, ham.body, G, '#e9a35b', hud.flashB, false, bw, 12); num(ham.body.toFixed(2), x0 + isz + 16 + bw, y1, 14);
     paintFood(NEED_GEM, x0 + isz / 2, y2, isz * 0.9, 0); bar(x0 + isz + 8, y2, ham.teeth, G, '#8fc8ff', hud.flashT, false, bw, 12); num(ham.teeth.toFixed(2), x0 + isz + 16 + bw, y2, 14);
-    iconPouch(x1 + isz / 2, y1, isz); bar(x1 + isz + 8, y1, inf ? 1 : fl, inf ? 1 : cap, pouchCol, 0, full && !inf, bw, 12); num(pouchTxt, x1 + isz + 16 + bw, y1, 14);
-    drawStars(x1 + isz + 8, y2, bw, 11);
+    drawStars(x1 + isz + 8, (y1 + y2) / 2, bw, 13);   // ★の目盛り：体と歯の目盛りの右に
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     ctx.font = `600 15px ${FONT}`; ctx.fillStyle = '#e8e8e8'; ctx.fillText(`♪ ${S.name}`, W - 16, y1);
     ctx.font = `13px ${FONT}`; ctx.fillStyle = '#bbb'; ctx.fillText(`巣 ${nest.total}${BOT ? `　自動 ×${SIM_SPEED}` : ''}`, W - 16, y2);
@@ -1737,7 +1784,10 @@ function drawBottom(x0, x1, y) {
 // バンドの顔ぶれ：左にオレンジの5マス（果物で育つ＝体の層）、右に青の5マス（宝石で育つ＝歯の層）。鳴っている楽器は光って、拍に合わせて弾む
 const band = { onB: [], onT: [], fxB: [], fxT: [], all: 0 };
 function bandReset() { band.onB = [0, 0, 0, 0, 0].map(() => false); band.onT = band.onB.slice(); band.fxB = [0, 0, 0, 0, 0]; band.fxT = [0, 0, 0, 0, 0]; band.all = 0; }
-const bandLv = (w, i) => Math.max(layer(w === 'B' ? ham.body : ham.teeth, i), song.part === 'chorus' ? 1 : 0);
+const bandLv = (w, i) => {   // その層の厚さ。サビは全員（演奏ON のときは勢いの分だけ。バスドラム・ハイハットの入ったマスは、いつも光る）
+  if (song.part !== 'chorus') return layer(w === 'B' ? ham.body : ham.teeth, i);
+  return S[w === 'B' ? 'body' : 'teeth'][i].some(pt => BEAT.test(pt[0])) ? 1 : driveAt(audioNow());
+};
 function bandTick(dt) {   // その層が鳴り始めたら：マスが大きく光って「○○ 参加！」
   for (const w of ['B', 'T']) for (let i = 0; i < 5; i++) {
     if (layer(w === 'B' ? ham.body : ham.teeth, i) > 0 && !band['on' + w][i]) {
@@ -1850,11 +1900,11 @@ const PILE_SIZE = 2 * (C.PILE_MAX_R + 24), PILE_RES = () => (lowFx ? 1 : 2);
 function pileReset() {
   pileCanvas = document.createElement('canvas'); pileCanvas.width = pileCanvas.height = PILE_SIZE * PILE_RES(); pileDrawn = 0;
   // 保存されている山：数を見た目の種類ごとに、まぜて描き直す
-  const looks = []; for (const k of ['gem', 'soft', 'nut', 'shell']) for (let i = 0; i < (nest[k] || 0); i++) looks.push(k);
+  const looks = []; for (const k of ['gem', 'soft', 'nut', 'shell', 'big', 'crystal', 'rainbow']) for (let i = 0; i < (nest[k] || 0); i++) looks.push(k);
   const order = looks.map((k, i) => [k, hash(i * 3.7)]).sort((a, b) => a[1] - b[1]).map(a => a[0]);
   order.forEach((look, i) => pileDraw(look, i, order.length));
 }
-const PILE_LOOK = { gem: [2.0, 5.0], soft: [3.0, 1.0], nut: [2.0, 2.0], shell: [2.0, 3.0] };   // 山に描くときの大きさ・硬さ（色を決めるため）
+const PILE_LOOK = { gem: [2.0, 5.0], soft: [3.0, 1.0], nut: [2.0, 2.0], shell: [2.0, 3.0], big: [3.4, 1.6], crystal: [1.4, 3.4], rainbow: [2.4, 2.4] };   // 山に描くときの大きさ・硬さ（色を決めるため）
 function pileDraw(look, k, total) {
   const [x, y] = pileSpot(k, total), g = pileCanvas.getContext('2d'), R = PILE_RES();
   const [s0, h0] = PILE_LOOK[look] || PILE_LOOK.gem, f = { look, s: s0 * (0.5 + hash(k + 0.3)), h: h0 * (0.5 + hash(k + 0.7)), seed: hash(k + 0.9) };
@@ -1949,6 +1999,9 @@ function drawFlyers() {
 const H = (h, s, l, dim = 0) => `hsl(${h},${s * (1 - 0.9 * dim)}%,${l * (1 - 0.35 * dim)}%)`;
 function paintFood(f, x, y, w, dim = 0) {
   if (f.look === 'gem') return paintGem(f, x, y, w, dim);
+  if (f.look === 'big') return paintBig(f, x, y, w, dim);
+  if (f.look === 'crystal') return paintCrystal(f, x, y, w, dim);
+  if (f.look === 'rainbow') return paintRainbow(f, x, y, w, dim);
   if (f.look === 'soft') return paintFruit(f, x, y, w, dim);
   if (f.look === 'shell') return paintShell(f, x, y, w, dim);
   if (f.look === 'nut') return paintNut(f, x, y, w, dim);
@@ -2023,14 +2076,54 @@ function paintShell(f, x, y, w, dim) { // 硬い殻に入ったごちそう：�
   if (dim < 0.3) { const k = twinkle(f, 0.4, 0.16); if (k) sparkle(x + i2 * 0.4, y - i2 * 0.3, k * Math.max(5, w * 0.45)); }
 }
 
+// サビの特別な食べ物（ふつうの物と、形と色をはっきり変える。どれも、ほんのり光る）
+const poly = (x, y, pts) => { ctx.beginPath(); pts.forEach(([u, v], i) => i ? ctx.lineTo(x + u, y + v) : ctx.moveTo(x + u, y + v)); ctx.closePath(); };
+function paintBig(f, x, y, w, dim) {   // 大きな実：まん丸の、つやつやの桃色の実。上に2枚の葉と、まん中にすじ
+  const r = w * 0.5;
+  ctx.fillStyle = shade(x - r * 0.35, y - r * 0.4, r * 0.1, x, y, r * 1.1, [[0, H(350, 100, 84, dim)], [0.5, H(345, 88, 63, dim)], [1, H(338, 78, 42, dim)]]);
+  ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+  ctx.lineWidth = Math.max(1, w * 0.04); ctx.strokeStyle = 'rgba(110,15,45,0.6)'; ctx.stroke();
+  ctx.strokeStyle = 'rgba(150,30,70,0.45)'; ctx.lineWidth = Math.max(1, w * 0.035);
+  ctx.beginPath(); ctx.moveTo(x + r * 0.05, y - r * 0.85); ctx.quadraticCurveTo(x - r * 0.35, y, x + r * 0.05, y + r * 0.85); ctx.stroke();   // すじ
+  ctx.fillStyle = H(118, 55, 40, dim);
+  for (const k of [-1, 1]) { ctx.beginPath(); ctx.ellipse(x + k * r * 0.32, y - r * 0.98, r * 0.34, r * 0.13, k * 0.5, 0, TAU); ctx.fill(); }   // 葉っぱ
+  ctx.fillStyle = `rgba(255,255,255,${0.75 * (1 - 0.7 * dim)})`; ctx.beginPath(); ctx.ellipse(x - r * 0.38, y - r * 0.35, r * 0.22, r * 0.12, -0.7, 0, TAU); ctx.fill();   // つや
+}
+function paintCrystal(f, x, y, w, dim) {   // 結晶：縦に長い六角の柱。うす紫から白へ
+  const hw = w * 0.32, hh = w * 0.55, pts = [[0, -hh], [hw, -hh * 0.5], [hw, hh * 0.5], [0, hh], [-hw, hh * 0.5], [-hw, -hh * 0.5]];
+  ctx.fillStyle = H(268, 70, 62, dim); poly(x, y, pts); ctx.fill();
+  ctx.fillStyle = H(262, 85, 82, dim); poly(x, y, [[0, -hh], [hw, -hh * 0.5], [0, 0], [-hw, -hh * 0.5]]); ctx.fill();   // 上の面（明るい）
+  ctx.fillStyle = H(275, 60, 48, dim); poly(x, y, [[0, 0], [hw, -hh * 0.5], [hw, hh * 0.5], [0, hh]]); ctx.fill();      // 右の面（暗い）
+  ctx.strokeStyle = `rgba(255,255,255,${0.85 * (1 - 0.6 * dim)})`; ctx.lineWidth = Math.max(1, w * 0.045); poly(x, y, pts); ctx.stroke();
+  ctx.fillStyle = `rgba(255,255,255,${0.85 * (1 - 0.7 * dim)})`; poly(x, y, [[-hw * 0.6, -hh * 0.42], [-hw * 0.25, -hh * 0.6], [-hw * 0.25, hh * 0.1], [-hw * 0.6, hh * 0.28]]); ctx.fill();   // 光の筋
+  if (dim < 0.3) { const k = twinkle(f, 0.6, 0.18); if (k) sparkle(x - hw * 0.3, y - hh * 0.4, k * Math.max(6, w * 0.5)); }
+}
+function paintRainbow(f, x, y, w, dim) {   // 虹の実：虹色の輪切りが、ゆっくり回るまん丸の実
+  const r = w * 0.5, rot = (clock * 0.8 + f.seed * 6) % TAU;
+  for (let i = 0; i < 7; i++) { ctx.fillStyle = H(i * 360 / 7, 90, 62, dim); ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, r, rot + i * TAU / 7, rot + (i + 1) * TAU / 7); ctx.closePath(); ctx.fill(); }
+  ctx.fillStyle = `rgba(255,255,255,${0.55 * (1 - 0.6 * dim)})`; ctx.beginPath(); ctx.arc(x, y, r * 0.36, 0, TAU); ctx.fill();
+  ctx.lineWidth = Math.max(1, w * 0.05); ctx.strokeStyle = `rgba(255,255,255,${0.9 * (1 - 0.6 * dim)})`; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.stroke();
+  ctx.fillStyle = `rgba(255,255,255,${0.8 * (1 - 0.7 * dim)})`; ctx.beginPath(); ctx.ellipse(x - r * 0.38, y - r * 0.38, r * 0.2, r * 0.11, -0.7, 0, TAU); ctx.fill();
+}
+const SPECIAL_GLOW = { big: '255,120,170', crystal: '205,170,255', rainbow: '255,250,215' };
+function specialGlow(f, x, y, w, beat) {   // ほんのり光る（拍に合わせて、少し強く）
+  const c = SPECIAL_GLOW[f.special], gr = w * 0.95 + 8 / view.VS, a = (0.35 + 0.25 * Math.pow(1 - beat, 2)) * (0.4 + 0.6 * f.born);
+  if (lowFx) { ctx.fillStyle = `rgba(${c},${a * 0.45})`; ctx.beginPath(); ctx.arc(x, y, gr * 0.8, 0, TAU); ctx.fill(); return; }
+  const g = ctx.createRadialGradient(x, y, w * 0.2, x, y, gr); g.addColorStop(0, `rgba(${c},${a})`); g.addColorStop(1, `rgba(${c},0)`);
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, gr, 0, TAU); ctx.fill();
+}
 function drawFoods() {
   const beat = beatPhase(), callers = new Set(ham.callers), VS = view.VS, nearR = nest.total ? Math.max(22, pileR(nest.total)) + 70 : 0;
   const callA = 0.55 + 0.45 * ham.callStr, callCol = ham.callKind === 'hard' ? '150,245,255' : '255,205,95';
   for (const f of foods) {
     const calling = callers.has(f);                     // 足りない方の物：拍に合わせて大きく弾んで、明るく光る
     const k = (f.fall ? 1 : 1 - Math.pow(1 - f.born, 3)) * (1 + 0.35 * Math.sin((f.pop || 0) * Math.PI)) * (calling ? 1 + (0.2 + 0.25 * ham.callStr) * Math.pow(1 - beat, 3) : 1) * (f.suck ? 1 - 0.65 * Math.pow(Math.min(1, f.suck.t / C.SUCK_TIME), 1.5) : 1), w = f.w * k;   // 吸い込まれる物は小さくなる
-    const fallZ = f.fall && f.born < 1 ? Math.pow(1 - f.born, 2) * 260 : 0;   // サビで降ってくる物
-    if (fallZ) { ctx.fillStyle = `rgba(0,0,0,${0.25 * f.born})`; ctx.beginPath(); ctx.ellipse(f.x, f.y, f.w * 0.55, f.w * 0.3, 0, 0, TAU); ctx.fill(); }
+    const fallZ = f.fall && f.born < 1 ? Math.pow(1 - f.born, 2) * (f.z0 || 260) : 0;   // サビで降ってくる物（特別な食べ物は、画面の上の外から）
+    if (fallZ && f.special) {                            // 特別な食べ物：落ちる場所に、先に影と輪が出る
+      const gy = f.y + f.w * 0.3;
+      ctx.fillStyle = `rgba(0,0,0,${0.12 + 0.3 * f.born})`; ctx.beginPath(); ctx.ellipse(f.x, gy, f.w * (0.35 + 0.3 * f.born), f.w * (0.17 + 0.14 * f.born), 0, 0, TAU); ctx.fill();
+      ctx.strokeStyle = `rgba(255,255,255,${0.6 * (1 - f.born)})`; ctx.lineWidth = 2 / VS; ctx.beginPath(); ctx.ellipse(f.x, gy, f.w * (0.9 - 0.3 * f.born), f.w * (0.45 - 0.15 * f.born), 0, 0, TAU); ctx.stroke();
+    } else if (fallZ) { ctx.fillStyle = `rgba(0,0,0,${0.25 * f.born})`; ctx.beginPath(); ctx.ellipse(f.x, f.y, f.w * 0.55, f.w * 0.3, 0, 0, TAU); ctx.fill(); }
     const x = f.x + (f.shake > 0 ? Math.sin(clock * 90) * 3 * (f.shake / 0.25) : 0), y = f.y - fallZ, dim = f.dim ?? 0;
     if (calling && !lowFx) {                             // 物のうしろの、やわらかい光
       const gr = w * 0.6 + 30 / VS, g = ctx.createRadialGradient(x, y, w * 0.2, x, y, gr);
@@ -2041,6 +2134,7 @@ function drawFoods() {
       ctx.lineWidth = Math.max(2, 3 / VS); ctx.strokeStyle = `rgba(255,255,255,${0.9 - 0.4 * dim})`;
       ctx.beginPath(); ctx.roundRect(x - w / 2 - 2, y - w / 2 - 2, w + 4, w + 4, w * 0.3); ctx.stroke();
     }
+    if (f.special) specialGlow(f, x, y, w, beat);
     ctx.globalAlpha = 1 - 0.4 * dim;                      // いま取れない物は、暗く少し半透明
     paintFood(f, x, y, w, dim);
     ctx.globalAlpha = 1;
@@ -2114,15 +2208,14 @@ function drawHamster() {
     ctx.fill();
   };
   if (cheeks.length) {
-    const fullNow = !feast() && !songOver && fill() >= capacity() && (clock * 3) % 1 < 0.5;   // いっぱい：ふちが赤く点滅
-    ctx.fillStyle = fullNow ? '#d8402a' : '#5b3a1e'; skin(fullNow ? 3 : 2);
+    ctx.fillStyle = '#5b3a1e'; skin(2);
     ctx.fillStyle = '#f6cf9e'; skin(0);
   }
   for (const p of items) {
     ctx.save(); ctx.translate(p.lx, p.ly); ctx.rotate(p.it.rot);
     ctx.globalAlpha = 0.9; paintFood(p.it, 0, 0, p.sz);
     ctx.globalAlpha = 1; ctx.strokeStyle = 'rgba(60,40,25,0.8)'; ctx.lineWidth = 1;
-    ctx.strokeRect(-p.sz / 2, -p.sz / 2, p.sz, p.sz);
+    if (!p.it.special) ctx.strokeRect(-p.sz / 2, -p.sz / 2, p.sz, p.sz);
     ctx.restore();
   }
 
@@ -2191,12 +2284,13 @@ function helpHTML() {
     '体と歯が育つと、下のバンドの仲間が1人ずつ加わる（オレンジ＝果物で育つ楽器、青＝宝石で育つ楽器）',
     '「ため」のあとのサビは食べ放題。頬袋の中の数が、上の★の目盛りを満たしていく（' + C.STARS.map((t, i) => `★${i + 1}：${t}個`).join('、') + '）',
     '曲の最後に、頬袋の中身を巣へ噴き出して、宝の山になる。山は大きくなると姿が変わる',
-    '宝石の列はテーマのメロディ、かたまりは和音になる。そばの物は吸い寄せて食べる'];
+    '宝石の列はテーマのメロディ、かたまりは和音になる。そばの物は吸い寄せて食べる',
+    'サビでは、食べている間だけバンドが厚くなる。空から降る特別な食べ物は、サビに入ったときの体と歯の育ち方で変わる（体が大きい＝大きな実、歯が硬い＝結晶、両方＝両方と虹の実）'];
   const keys = touchUI ? ['指を置いた方へ走る', '「スタートへ」：スタート地点に戻る', '「曲を最初から」：2回押すと、この曲を最初から', '「音量」：音量と、テーマの候補の切り替え'] :
     [`${k('W A S D')} ${k('矢印')}：移動　マウス：押している間、その方へ走る`, `${k('R')}：スタート地点へ（長押しで、この曲を最初から）`,
      `${k('M')}：食べ方（いま ${eatMode}。A＝Space で食べる、B＝触れたら食べる）`, `${k('N')}：音楽／効果音（いま ${soundMode === 'music' ? '音楽' : '効果音'}）`,
      `${k('T')}：テーマの候補を切り替える（いま ${themeIdx + 1}「${C.THEMES[themeIdx].name}」）`, `${k('K')}：当たった物が動く（いま ${on(C.PUSH)}）　${k('J')}：かたまりの連鎖の吸い込み（いま ${on(C.CHAIN)}）`,
-     `${k('G')}：取り切ったときのバンドの応え（いま ジャーン${ANSWER_NAME[C.ANSWER_MODE]}。前／少／無）　${k('F')}：頬袋の上限（いま ${C.POUCH_LIMIT ? '満腹ON' : '満腹OFF'}）`,
+     `${k('V')}：演奏（いま ${C.PLAY ? '演奏ON' : '演奏OFF'}。食べている間だけサビの伴奏が厚くなる・鳴った音が光る）　${k('B')}：サビの特別な食べ物（いま ${C.SPECIAL ? '特別ON' : '特別OFF'}）`,
      `${k('-')} ${k('=')}：全体の音量　${k('[')} ${k(']')}：音楽　${k(',')} ${k('.')}：効果音`, `${k('H')}：この説明（${k('Esc')} でもとじる）`];
   return '<h4>どうなればいい？</h4><ul>' + rules.map(r => `<li>${r}</li>`).join('') + '</ul><h4>操作</h4><ul>' + keys.map(r => `<li>${r}</li>`).join('') + '</ul>';
 }
@@ -2264,7 +2358,6 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) pause
 for (const type of ['pointerdown', 'keydown']) addEventListener(type, e => { if (!paused || helpOpen) return; resumeGame(); e.stopImmediatePropagation(); if (e.cancelable) e.preventDefault(); }, true);
 
 // ---------------- 入力 ----------------
-const ANSWER_NAME = { full: '前', less: '少', none: '無' };
 const KEYMAP = {
   KeyW: 'up', ArrowUp: 'up', KeyS: 'down', ArrowDown: 'down',
   KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right', Space: 'eat',
@@ -2293,8 +2386,8 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyT' && !e.repeat) toggleTheme();   // テーマの候補
   if (e.code === 'KeyK' && !e.repeat) { C.PUSH = !C.PUSH; say(C.PUSH ? '押す ON' : '押す OFF', '#ffffff', 3); }       // 当たった物が動く
   if (e.code === 'KeyJ' && !e.repeat) { C.CHAIN = !C.CHAIN; say(C.CHAIN ? '連鎖 ON' : '連鎖 OFF', '#ffffff', 3); }    // かたまりの連鎖の吸い込み
-  if (e.code === 'KeyG' && !e.repeat) { const ms = ['full', 'less', 'none']; C.ANSWER_MODE = ms[(ms.indexOf(C.ANSWER_MODE) + 1) % 3]; say('ジャーン' + ANSWER_NAME[C.ANSWER_MODE], '#ffffff', 3); }   // 取り切ったときのバンドの応え
-  if (e.code === 'KeyF' && !e.repeat) { C.POUCH_LIMIT = !C.POUCH_LIMIT; say(C.POUCH_LIMIT ? '満腹ON' : '満腹OFF', '#ffffff', 3); }   // 頬袋の上限
+  if (e.code === 'KeyV' && !e.repeat) togglePlay();      // 演奏：自分が鳴らしているとわかる仕組み
+  if (e.code === 'KeyB' && !e.repeat) { C.SPECIAL = !C.SPECIAL; say(C.SPECIAL ? '特別ON' : '特別OFF', '#ffffff', 3); }   // サビの特別な食べ物
   if (e.code === 'KeyM' && !e.repeat && !touchUI) {   // スマホは食べ方Bで固定
     eatMode = eatMode === 'A' ? 'B' : 'A';
     say(eatMode === 'A' ? '食べ方A' : '食べ方B', '#ffffff', 3);
@@ -2407,7 +2500,7 @@ function showVol(k) {
 //   果物：その曲のリズムとベースの楽器で、2〜3音の短いフレーズ。続けて食べると、背景にリズムとベースの層が一時的に加わる
 //   取れない物に当たった音も、その曲の楽器で（大きさが足りない＝低い音、歯が足りない＝高い音）
 //   音の行き先：背景の音楽は「音楽」の音量、それ以外は「効果音」の音量を通って、「全体」の音量へ
-let AC = null, master = null, musicBus = null, sfxBus = null, curBus = null, noiseBuf = null, distCurve = null, soundMode = C.SOUND_MODE_START;
+let AC = null, master = null, musicBus = null, sfxBus = null, duck = null, curBus = null, noiseBuf = null, distCurve = null, soundMode = C.SOUND_MODE_START;
 const outBus = () => curBus || sfxBus;
 const lv = L => (L / 8) ** 2;                   // 目盛り → 大きさ（8 が基準の1倍、10 で約1.6倍、0 で消音）
 function applyVol() {
@@ -2440,7 +2533,7 @@ function audioChain(ac) {       // 音の行き先（音量 → 耳に痛い高�
   master = ac.createGain(); master.gain.value = C.SOUND_VOLUME * lv(vol.all);
   musicBus = ac.createGain(); sfxBus = ac.createGain();
   musicBus.gain.value = lv(vol.music); sfxBus.gain.value = lv(vol.sfx);
-  musicBus.connect(master); sfxBus.connect(master);
+  duck = ac.createGain(); musicBus.connect(duck); duck.connect(master); sfxBus.connect(master);   // duck：自分の音が鳴る瞬間だけ、伴奏をほんの少し下げる
   master.connect(lp); lp.connect(comp); comp.connect(ac.destination);
   const n = ac.createBuffer(1, ac.sampleRate, ac.sampleRate), d = n.getChannelData(0);   // ざらざらした音のもと
   for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -2804,11 +2897,11 @@ function hits(list, base, t, mul = 1, ch = CH.tonic, noteLen = 0, music = false)
 
 // ---- 出来事ごとの音（音楽モードなら、音楽の刻みにそろえる） ----
 function tick() { noise(AC.currentTime, 0.012, 0.016, 'bandpass', 3500); }   // 食べた瞬間の「ぷち」：音の高さのない、ごく小さく短い音（リズムを乱さない）
-function sfxEat(ratio, kind) {  // ratio = 食べ物の大きさ ÷ 体の大きさ
+function sfxEat(ratio, kind, x, y) {  // ratio = 食べ物の大きさ ÷ 体の大きさ。x, y：食べた場所（音符の光を出す所）
   if (!AC) return;
   if (soundMode === 'music') { tick(); if (!mus.timer) musicStart(); }   // 音楽モード：すぐ鳴る小さな「ぷち」
   if (kind !== 'hard') { mus.groove = Math.min(1, mus.groove + C.GROOVE_PER_FRUIT * (0.7 + 0.6 * ratio)); mus.grooveAt = clock; }   // 果物：リズムとベースの層が厚くなる
-  queueEat({ kind, ratio });
+  queueEat({ kind, ratio, x, y });
   pumpQueue(AC.currentTime);
 }
 // ばらばらの物を食べた音の行列：短い間にたくさん食べたら、16分音符の刻み（効果音モードは SFX_QUEUE_GAP 秒）で後ろに並べて、一つずつ鳴らす
@@ -2850,6 +2943,7 @@ function playEatNote(q, t, music) {   // 並んだ音を1つ鳴らす。使っ�
   if (q.kind === 'hard') {    // 硬い物（殻つきなど）：きらっと一音
     const m = rising(pool(q.ratio > 0.66 ? 67 : q.ratio > 0.33 ? 74 : 79), 'g');
     play(S.ev.hard, t, m + wob(), 0.9, vol * 0.55 * mx('hard'));
+    myNote(q.x, q.y, t, 'hard', 0.35 + 0.5 * q.ratio);
     return 1;
   }
   // 果物（どんぐりも）：その曲のリズムとベースの楽器で、短いフレーズ。大きい物ほど低い音域から
@@ -2859,55 +2953,23 @@ function playEatNote(q, t, music) {   // 並んだ音を1つ鳴らす。使っ�
     const tt = at(off), m = stepNote(music, tt, lo, base, st);
     play(S.ev.fruit, tt, m, 0.2, (i ? 0.65 : 1) * (both ? vol * 0.8 : vol) * mx('fruit'), { w: i ? 0 : q.ratio });
     if (both && i === ph.length - 1) play(S.ev.hard, tt, m + 24, 0.9, vol * 0.25 * mx('hard'));   // どんぐり：最後に小さなきらっ
+    myNote(q.x, q.y, tt, both ? 'both' : 'fruit', (i ? 0.25 : 0.5) + 0.5 * q.ratio);
   });
   return ph[ph.length - 1][0] + 1;
 }
-function playClusterChord(q, t, music) {   // 宝石のかたまりを食べ切った：和音が下から上へ花が開くように素早く広がり、低い根音が支える。その場所できらっ（ANSWER_MODE で大きさが変わる）
-  const n = q.chord, ch = music ? chordAt(t) : CH.tonic, mode = C.ANSWER_MODE;   // 効果音モードは主音の和音
+function playClusterChord(q, t, music) {   // 宝石のかたまりを食べ切った：その場所できらっ（見た目）と、小さな高い音だけ（背景のバンドは応えない）
+  const n = q.chord, ch = music ? chordAt(t) : CH.tonic;   // 効果音モードは主音の和音
   sparks.push({ x: q.x, y: q.y, t: -(t - AC.currentTime), life: 0.8, s: 8 + 3 * n });
-  const notes = chordNotes(ch, 60, 98);
-  if (mode === 'none') { play(S.ev.cluster, t, notes[Math.min(notes.length - 1, 3 + n)], 0.9, 0.014 * mx('blob')); return; }   // 無：きらっと小さな音だけ
-  const k = mode === 'less' ? 0.5 : 1, len = mode === 'less' ? 0.5 : 1;                  // 少：半分の大きさで、短く
-  notes.slice(0, (mode === 'less' ? 3 : 4) + n).forEach((m, i) => play(S.ev.cluster, t + i * 0.035, m, 0.9, (0.028 + 0.002 * i) * k * mx('blob')));   // 下から上へ
-  syn(t, hz(rootIn(ch, 36)), 2.4 * len, 0.08 * k, { atk: 0.01 });                         // 低い根音
-  syn(t, hz(rootIn(ch, 48)), 1.6 * len, 0.03 * k, { type: 'triangle', atk: 0.01 });
-  play(S.ev.blob, t + 0.02, rootIn(ch, 72), 1.4 * len, (0.022 + 0.004 * n) * k * mx('blob'));
-  noise(t, 0.7 * len, (0.006 + 0.002 * n) * k, 'highpass', 6500);
-  if (music) bandAnswer(t);
-}
-// 背景のバンドが応える：次の拍の頭へ向けて太鼓の短いフィル（32分音符で、高い→低い）、拍の頭でシンバルとバスドラム、ベースと和音（その曲の楽器で）
-let bandAt = -9;
-function nextHead4(t) {   // t 以降でいちばん近い「4小節のまとまりの頭」（場面の頭から4小節ごと。本物の曲でシンバルが鳴りやすい所）の時刻
-  const b0 = Math.ceil((t - mus.t0) / barSec() - 1e-6);
-  for (let b = b0; b < b0 + 5; b++) { const p = partOfBar(b); if (!p) return null; if ((b - p.from) % 4 === 0) return mus.t0 + b * barSec(); }
-  return null;
-}
-function bandAnswer(after) {
-  const mode = C.ANSWER_MODE;
-  if (mode === 'none') return;                         // 無：鳴らさない
-  let B = nextGrid(after + 0.01, 4);
-  if (mode === 'less') {                               // 少：4小節のまとまりの頭まで1小節以内に取り切ったときだけ、その頭で。サビ（バンド全員で鳴っている）では鳴らさない
-    if (feast()) return;
-    B = nextHead4(after + 0.01);
-    if (B === null || B - after > barSec() + 0.01) return;
-  }
-  const K = S.kit, s32 = sixteenth() / 2, ch = chordAt(B);
-  if (Math.abs(B - bandAt) < 0.01) return;             // 同じ拍で2回は応えない
-  if (feast() && B - bandAt < barSec() - 0.01) return;   // サビ（バンド全員で鳴っている）では、1小節に1回まで
-  bandAt = B;
-  curBus = musicBus;
-  K.toms.forEach((f, i) => play(K.tom, B - (K.toms.length - i) * s32, hzMidi(f), 0, 0.07 + 0.005 * i));
-  play(K.crash, B, 0, 1.6, 0.045); play(K.kick, B, 0, 0, 0.13);
-  play(K.bass, B, rootIn(ch, 36), beatSec() * 1.6, 0.09);
-  for (const m of chordNotes(ch, 60, 72)) play(K.comp, B, m, 0.4, 0.026);
-  curBus = null;
+  const notes = chordNotes(ch, 60, 98), m = notes[Math.min(notes.length - 1, 3 + n)];
+  play(S.ev.cluster, t, m, 0.9, 0.014 * mx('blob'));
+  return m;
 }
 // 宝石の列：一つ食べるごとに、テーマのメロディを一音ずつ、その曲の刻みで鳴らす（列が短いときはテーマの途中まで、長いときはくり返す）
 //   続けて食べて刻みが詰まったら、次の刻みへ順に並べる
 //   テーマの何音目かは、列ごとに頭に戻さず、曲全体で続きから（区間が変わったら頭へ）。列を次々取ると、テーマが先へ進む
-//   列を取り切ったら：最後の音は主音（その時の和音になければ根音。効果音モードは主音）に着地して締め、背景のバンドが応える（ANSWER_MODE）
+//   列を取り切ったら：最後の音は主音（その時の和音になければ根音。効果音モードは主音）に着地して締める（背景のバンドは応えない）
 const rowSnd = { next: 0, mel: -1 };   // mel：テーマの何音目まで鳴らしたか（列ごとに頭に戻さず、曲全体で続きから。区間が変わったら頭へ）
-function rowNote(g, done) {
+function rowNote(g, done, x, y) {
   const now = AC.currentTime, music = soundMode === 'music' && !!mus.timer, th = S.theme;
   let t = Math.max(rowSnd.next, now + 0.015);
   if (music) t = nextGrid(t, th.grid);
@@ -2916,12 +2978,13 @@ function rowNote(g, done) {
     rowSnd.mel = (rowSnd.mel + 1) % THEME_N.length;     // テーマの次の音（最後まで行ったら頭に戻る）
     g.mels = (g.mels || []).concat(rowSnd.mel);
     for (let r = 0; r < th.rowStab; r++) hits(th.row, THEME_N[rowSnd.mel], music ? T16(idx16(t) + r) : t + r * 0.06, r ? 0.75 : 1);   // 刻む曲は、16分音符で刻み直す
+    myNote(x, y, t, 'gem', 0.55);
     return;
   }
   const ch = music ? chordAt(t) : CH.tonic, tonic = ((S.key % 12) + 12) % 12;   // 落ち着く音：和音に主音があれば主音、なければ根音
   const m = ch.pcs.includes(tonic) ? 72 + S.key : rootIn(ch, 67) - (rootIn(ch, 67) > 72 ? 12 : 0);
   hits(th.rowLand, m, t, 1, ch);
-  if (music) bandAnswer(t);
+  myNote(x, y, t, 'gem', 1);
 }
 // 宝石のかたまり：ほぼ同時に食べた音は、並べずに、全部を1つの和音として次の8分音符の刻みで同時に鳴らす
 //   和音の音は、その時の和音のド・ミ・ソにあたる3音を下から重ねる（濁らない）。食べ切ったら、その次の8分音符で完成の和音ときらっ
@@ -2937,7 +3000,7 @@ function blobGather(id) {              // 同じかたまりの残りのうち�
   }
   return eta;
 }
-function blobNote(g, done, id, at) {   // at：連鎖の吸い込みで口に届いた物は、その刻みの時刻
+function blobNote(g, done, id, at, x, y) {   // at：連鎖の吸い込みで口に届いた物は、その刻みの時刻。x, y：食べた場所
   const now = AC.currentTime, music = soundMode === 'music' && !!mus.timer;
   if (at === undefined && blobSnd.t < now + 0.01) {    // 新しい和音を始める（連鎖がないときは、すぐ食べそうな残りを待ってから）
     const wait = now + 0.03 + (C.CHAIN ? 0 : blobGather(id));
@@ -2948,7 +3011,94 @@ function blobNote(g, done, id, at) {   // at：連鎖の吸い込みで口に届
   play(S.ev.blob, t, notes[Math.min(blobSnd.k, notes.length - 1)], 0.9, 0.034 * mx('blob'));
   if (blobSnd.k === 0) syn(t, hz(chordNotes(triad(ch), 48, 59)[0]), 0.7, 0.03, { atk: 0.006 });   // 下に低い音を1つ敷く
   blobSnd.k++;
-  if (done) playClusterChord({ chord: g.n, x: g.sx / g.eaten, y: g.sy / g.eaten }, music ? T16(idx16(t) + 2) : t + 0.15, music);
+  myNote(x, y, t, 'gem', 0.45);
+  if (done) { const t2 = music ? T16(idx16(t) + 2) : t + 0.15, q = { chord: g.n, x: g.sx / g.eaten, y: g.sy / g.eaten }; playClusterChord(q, t2, music); myNote(q.x, q.y, t2, 'gem', 0.9); }
+}
+// 演奏：自分が鳴らした音が鳴る瞬間（音の時計で t）に、食べた場所 (x, y) から音符の形の光が飛び出す。kind で色、n（0〜1）で大きさ
+//   サビの間は、その瞬間だけ伴奏をほんの少し下げる（自分の音を聞き分けやすく）
+let noteFxs = [];
+const NOTE_COL = { fruit: '255,160,50', both: '255,205,80', hard: '150,225,255', gem: '95,180,255', big: '255,85,150', crystal: '200,150,255' };
+function myNote(x, y, t, kind, n = 0.5) {
+  if (!C.PLAY || x === undefined) return;
+  if (noteFxs.length < (lowFx ? 40 : 120)) noteFxs.push({ x, y, at: t, kind, n: clamp(n, 0, 1), on: false, t: 0, life: 0.8 + 0.35 * n,
+    vx: (Math.random() - 0.5) * 70, vy: -(80 + Math.random() * 50) * (0.8 + 0.4 * n), rot: (Math.random() - 0.5) * 0.7 });
+  duckAt(t);
+}
+function duckAt(t) {   // サビの間だけ。下げてすぐ戻す（続けて鳴ると、少し下がったままになる）
+  if (!duck || song.part !== 'chorus' || !mus.timer || soundMode !== 'music') return;
+  const g = duck.gain, now = AC.currentTime;
+  g.setTargetAtTime(C.DUCK, Math.max(now, t - 0.008), 0.005);
+  g.setTargetAtTime(1, Math.max(now, t + 0.05), 0.06);
+}
+function duckReset() { if (duck && AC) { duck.gain.cancelScheduledValues(0); duck.gain.setValueAtTime(1, AC.currentTime); } }
+function noteFxTick(dt) {   // 音が鳴る時刻になったら出す（スピーカーから音が出るまでの遅れの分も待つ）
+  const lat = AC ? AC.outputLatency || AC.baseLatency || 0 : 0, now = AC ? AC.currentTime + lat : Infinity;
+  for (const p of noteFxs) {
+    if (p.on) p.t += dt;
+    else if (now >= p.at - 0.004 || p.at - now > 3) { p.on = true; p.shownAt = AC ? AC.currentTime : 0; }
+  }
+  if (noteFxs.length) noteFxs = noteFxs.filter(p => !p.on || p.t < p.life);
+}
+function drawNoteFx() {
+  const VS = view.VS;
+  for (const p of noteFxs) {
+    if (!p.on) continue;
+    const u = p.t / p.life, a = u < 0.12 ? u / 0.12 : 1 - Math.pow((u - 0.12) / 0.88, 1.5), pop = u < 0.15 ? 0.7 + 0.5 * Math.sin(u / 0.15 * Math.PI / 2) : 1.2 - 0.2 * Math.min(1, (u - 0.15) / 0.3);
+    const s = (12 + 14 * p.n) * pop / VS, x = p.x + p.vx * p.t / VS, y = p.y + p.vy * p.t / VS;
+    const col = p.kind === 'rainbow' ? null : NOTE_COL[p.kind] || NOTE_COL.gem, hue = (clock * 240 + p.at * 97) % 360;
+    const tint = al => col ? `rgba(${col},${al})` : `hsla(${hue},95%,66%,${al})`;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(p.rot);
+    ctx.fillStyle = tint(0.25 * a); ctx.beginPath(); ctx.arc(0, 0, s * 1.05, 0, TAU); ctx.fill();   // やわらかい光
+    ctx.fillStyle = tint(a); ctx.strokeStyle = `rgba(40,25,10,${0.5 * a})`; ctx.lineWidth = Math.max(0.8, s * 0.09);
+    ctx.beginPath(); ctx.ellipse(-s * 0.16, s * 0.34, s * 0.34, s * 0.25, -0.45, 0, TAU); ctx.fill(); ctx.stroke();   // 音符の玉
+    ctx.fillRect(s * 0.08, -s * 0.62, s * 0.13, s * 0.98);                                                              // 棒
+    ctx.beginPath(); ctx.moveTo(s * 0.21, -s * 0.62); ctx.quadraticCurveTo(s * 0.62, -s * 0.36, s * 0.5, -s * 0.02); ctx.quadraticCurveTo(s * 0.48, -s * 0.28, s * 0.21, -s * 0.32); ctx.closePath(); ctx.fill();   // 旗
+    ctx.fillStyle = `rgba(255,255,255,${0.8 * a})`; ctx.beginPath(); ctx.ellipse(-s * 0.26, s * 0.27, s * 0.1, s * 0.06, -0.45, 0, TAU); ctx.fill();   // つや
+    ctx.restore();
+  }
+}
+function togglePlay() {   // V キー：演奏の入り切り
+  C.PLAY = !C.PLAY; say(C.PLAY ? '演奏ON' : '演奏OFF', '#ffffff', 3);
+  if (!C.PLAY) { noteFxs = []; duckReset(); }
+}
+// 特別な食べ物の音：拍にそろえて、サビの伴奏より少し前に出る大きさで
+//   大きな実：その曲のバスドラムとベース（設計図の kit）で「ドン・ド」と低く太く（3つの形を順に）
+//   結晶：テーマのメロディの次の音を、宝石の列の楽器で1オクターブ上に、上にきらっ（宝石の列と同じ続きから）
+//   虹の実：両方を同時に
+const BIG_PHRASES = [[[0, 'R'], [1, "R'"]], [[0, 'R'], [1, '5']], [[0, 'R'], [1, 'R'], [3, "R'"]]];
+function specialEat(f) {
+  special.eaten[f.special]++;
+  if (!AC) return;
+  if (soundMode === 'music') { tick(); if (!mus.timer) musicStart(); }
+  const music = soundMode === 'music' && !!mus.timer, now = AC.currentTime;
+  let t;
+  if (f.special !== 'big') t = crystalNote(f, music, now);
+  if (f.special !== 'crystal') bigPhrase(f, music, now, t);
+}
+function crystalNote(f, music, now) {
+  const th = S.theme;
+  let t = Math.max(rowSnd.next, now + 0.015);
+  if (music) t = nextGrid(t, th.grid);
+  if (t - now > beatSec() * 1.5) return undefined;     // 詰まりすぎたら、鳴らさない（音がどんどん遅れないように）
+  rowSnd.next = music ? T16(idx16(t) + th.gap) : t + C.ROW_SFX_GAP;
+  rowSnd.mel = (rowSnd.mel + 1) % THEME_N.length;     // 宝石の列と同じ、テーマの続き
+  const m = THEME_N[rowSnd.mel] + 12;
+  for (let r = 0; r < th.rowStab; r++) hits(th.row, m, music ? T16(idx16(t) + r) : t + r * 0.06, (r ? 0.75 : 1) * 1.15 * mx('crystal'));
+  play(S.ev.sparkle, t, m + 12, 0.9, 0.02 * mx('sparkle') * mx('crystal'));
+  myNote(f.x, f.y, t, f.special === 'rainbow' ? 'rainbow' : 'crystal', 0.8);
+  return t;
+}
+function bigPhrase(f, music, now, at) {
+  const K = S.kit;
+  let t = at ?? Math.max(special.next, now + 0.015);
+  if (music && at === undefined) t = nextGrid(t, 2);   // 8分音符の刻みに
+  if (t - now > beatSec() * 1.5) return;               // 詰まりすぎたら、鳴らさない
+  const ch = music ? chordAt(t) : CH.tonic, base = rootIn(ch, 36), ph = BIG_PHRASES[special.k++ % BIG_PHRASES.length], g = (S.gain ?? 1) * mx('big');
+  const at16 = n => music ? T16(idx16(t) + n) : t + n * C.SFX_QUEUE_GAP;
+  play(K.kick, t, 0, 0, 0.12 * g);
+  ph.forEach(([n, tok], i) => play(K.bass, at16(n), noteOf(tok, ch, base), beatSec() * (i ? 0.4 : 0.7), (i ? 0.07 : 0.1) * g));
+  special.next = Math.max(special.next, at16(2));
+  myNote(f.x, f.y, t, f.special === 'rainbow' ? 'rainbow' : 'big', 1);
 }
 function sfxBump(lackSize, lackTeeth) {   // 取れない物に当たった（その曲の楽器で。大きさが足りない＝低い音、歯が足りない＝高い音）
   if (!AC) return;
@@ -3004,6 +3154,7 @@ function sfxTheme(landIn) {
 }
 // 締めの最後：上がる3音（その曲の音階で 5度 → 7度（導音。短調・ふしぎな音階でも半音上げる）→ 主音）をゆっくりつないで、
 //   最後の宝が巣に着く瞬間（fin：曲の時計）に、高い主音（主音の2オクターブ上）を1音。下に、ごく小さく低い主音を敷く。効果音モードでも同じ
+//   楽器は、その曲のテーマの楽器（設計図の theme.end）。高すぎて細く聞こえる楽器は、全体を1オクターブ下げて、上に今までの高さの小さな音を重ねる
 //   音楽モードは音の時計で前もって予約し、効果音モードはゲームの時計でその時が来たら鳴らす（どちらも、見た目の最後の着地とずれない）
 const ending = { list: [] };
 function sfxEnding(fin) {
@@ -3016,9 +3167,9 @@ function sfxEnding(fin) {
   else ending.list = notes.map(([m, b, f]) => ({ at: fin - b, m, f }));
 }
 function endingNote(t, m, final) {
-  if (!final) return musicBox(t, hz(m), 0.032, 1.2);
-  musicBox(t, hz(m), 0.06, 2.0);
-  syn(t, hz(m - 48), 2.2, 0.022, { atk: 0.02 });
+  const e = S.theme.end;
+  hits(final ? e.top : e.up, m + e.oct, t, 1, CH.tonic);
+  if (final) syn(t, hz(m - 48), 2.2, 0.022, { atk: 0.02 });   // ごく小さく、低い主音
 }
 function endingTick() {   // 効果音モード：ゲームの時計で、その時が来たら鳴らす
   if (!ending.list.length || !live()) return;
@@ -3028,12 +3179,6 @@ function endingTick() {   // 効果音モード：ゲームの時計で、その
     endingNote(t, n.m, n.f); if (n.f) song.finalAudio = t;
     return false;
   });
-}
-function musicBox(t, f, vol, dur) {   // オルゴールのような音：はっきりした芯と、きらっとした倍音。長く自然に響いて消える
-  syn(t, f, dur, vol, { atk: 0.002 });
-  syn(t, f * 2, dur * 0.4, vol * 0.22, { atk: 0.002 });
-  syn(t, f * 3.01, dur * 0.18, vol * 0.1, { atk: 0.001 });
-  noise(t, 0.012, vol * 0.12, 'highpass', 7000);
 }
 function popSound(t) {   // 噴き出す瞬間の「ぽんっ」：はじける音
   syn(t, 820, 0.16, 0.13, { slide: 140, atk: 0.003 });
@@ -3102,20 +3247,29 @@ function musicTick() {
   finally { curBus = null; }
   pumpQueue(now);               // 並べた食べた音を、16分音符の刻みで鳴らす
 }
+// 演奏：サビの伴奏の「勢い」。食べると上がり（1つで DRIVE_PER_EAT）、最後に食べてから DRIVE_HOLD 拍はそのまま、そのあと DRIVE_FADE 拍で 0 へ
+const drive = { lv: 0, at: -99 };      // lv：最後に食べたときの勢い、at：その時刻（音の時計）
+const audioNow = () => AC ? AC.currentTime : clock;
+function driveNow(t) { const d = t - drive.at, h = C.DRIVE_HOLD * beatSec(); return d < h ? drive.lv : Math.max(0, drive.lv * (1 - (d - h) / (C.DRIVE_FADE * beatSec()))); }
+function driveUp() { const t = audioNow(); drive.lv = Math.min(1, driveNow(t) + C.DRIVE_PER_EAT); drive.at = t; }
+const driveAt = t => C.PLAY ? driveNow(t) : 1;          // 演奏OFF：いつも 1（14回目と同じ）
+const BEAT = /^(kick|hat|openHat)/;                      // 勢いが 0 でも残す、基本の刻み（バスドラム・ハイハット）
 const SEC = { intro: 'i', a: 'a', b: 'b', build: 'k', chorus: 'c' };
 function playStep(k, t) {        // 16分音符1つぶんの背景
   const bar = Math.floor(k / 16), p = partOfBar(bar);
   if (!p) return playCalm(k, t);                                     // 曲が終わった：静かな和音
   if (p.k === 'finale') return playFinale(k, t, bar - p.from);       // 締め：テーマをバンド全員で
   const ch = stepChord(k), sec = SEC[p.k], chorus = p.k === 'chorus', build = p.k === 'build', all = chorus ? 1 : 0, lastBuild = build && bar === p.to - 1;
-  const G = chorus ? 1 : mus.groove;                                 // 果物の層：サビはいちばん厚く
-  const go = (list, lvl) => { for (const pt of list) { const o = pt[2] || {}; if ((o.in && !o.in.includes(sec)) || (o.last && !lastBuild) || (o.from && G < o.from)) continue; playPart(pt, k, t, lvl, ch); } };
-  go(S.base, 1);
-  S.body.forEach((list, i) => { const l = Math.max(layer(ham.body, i), all); if (l > 0) go(list, l); });     // 大きさの層（低くて温かい楽器）
-  S.teeth.forEach((list, i) => { const l = Math.max(layer(ham.teeth, i), all); if (l > 0) go(list, l); });   // 硬さの層（高くてきらきらした楽器）
+  const D = chorus ? driveAt(t) : 1;                                 // 演奏：サビの伴奏は、勢いの分だけ厚く（演奏OFF は、いつもいちばん厚く）
+  const G = chorus ? D : mus.groove;                                 // 果物の層
+  const keep = lerp(C.DRIVE_KEEP, 1, D);                             //   勢いが 0 でも残す刻み（土台・バスドラム・ハイハット）は、少しだけ小さく
+  const go = (list, lvl, thin = false) => { for (const pt of list) { const o = pt[2] || {}; if ((o.in && !o.in.includes(sec)) || (o.last && !lastBuild) || (o.from && G < o.from)) continue; playPart(pt, k, t, thin ? lvl * (BEAT.test(pt[0]) ? keep : D) : lvl, ch); } };
+  go(S.base, keep);
+  S.body.forEach((list, i) => { const l = Math.max(layer(ham.body, i), all); if (l > 0) go(list, l, true); });     // 大きさの層（低くて温かい楽器）。サビは勢いの分だけ（バスドラム・ハイハットは残す）
+  S.teeth.forEach((list, i) => { const l = Math.max(layer(ham.teeth, i), all); if (l > 0) go(list, l, true); });   // 硬さの層（高くてきらきらした楽器）
   if (G > 0.02) go(S.groove, G);
   if (build) { if (k === p.from * 16) riser(t, mus.t0 + P('chorus').from * barSec()); go(S.build, 1); }    // ため：サビの頭へ「シューッ」
-  if (chorus) { if (k === p.from * 16) { play(S.kit.crash, t, 0, 1.8, 0.05); play(S.kit.kick, t, 0, 0, 0.14); } go(S.chorus, 1); }   // サビの頭：「ジャン」
+  if (chorus) { if (k === p.from * 16) { play(S.kit.crash, t, 0, 1.8, 0.05); play(S.kit.kick, t, 0, 0, 0.14); } go(S.chorus, D); }   // サビの頭：「ジャン」。サビの層は勢いの分だけ
 }
 // 締め：1小節目はサビを受けて「ジャン」→ テーマの間（設計図の和音の上で）、遊んでいる間に列で聞いてきたテーマを、
 //   その曲の編曲でバンド全員で最初から最後まで演奏する → 小節の頭で、テーマの最後の音が主音に着地（噴き出しと同時に「ぽんっ」）→ 余韻を残して消えていく
@@ -3128,7 +3282,8 @@ function playFinale(k, t, j) {
   }
   if (k < land) {
     if (j === 0) for (const pt of F.hit) playPart(pt, k, t, 1, ch);
-    for (const pt of (j === 0 && L === 2 ? F.roll : F.band)) playPart(pt, k, t, 1, ch);
+    const dv = driveAt(t), D = lerp(C.DRIVE_FINALE_MIN, 1, dv), keep = lerp(C.DRIVE_KEEP, 1, dv);   // 演奏：テーマの間のバンドも、勢いで厚さが変わる（テーマのメロディはそのまま）
+    for (const pt of (j === 0 && L === 2 ? F.roll : F.band)) playPart(pt, k, t, BEAT.test(pt[0]) ? keep : D, ch);
     if (j === L - 1) for (const pt of F.fill) playPart(pt, k, t, 1, ch);
   }
   if (k === land) {                                    // 着地：テーマの最後の音（主音）と主音の和音。「ぽんっ」と重ねる（「ぽんっ」は効果音の音量で）
@@ -3154,7 +3309,7 @@ function riser(t, end) {         // ため：サビの頭（end）へ向けて�
 // ---------------- 動作確認用の自動プレイ ----------------
 // URL に ?bot を付けると自動で遊ぶ（?bot&speed=10 で早回し）。
 // コンソールで simulate() を呼ぶと画面を使わずに1曲を最後まで遊んで、結果を返す（数値調整の目安用）。
-const bot = { target: null, plan: null, planT: 0, ban: new Map() };
+const bot = { target: null, plan: null, planT: 0, ban: new Map(), lean: null, leanK: 2 };   // lean：確かめ用に、体寄り（'B'）・歯寄り（'T'）に育てる（leanK：寄せる強さ）
 const GRID = 10, GW = Math.ceil(C.FIELD_W / GRID), GH = Math.ceil(C.FIELD_H / GRID);
 function botPlan(f) {             // 目標までの距離マップ（食べられないものを避けた格子の上で幅優先探索）
   const blocked = new Uint8Array(GW * GH), dist = new Int32Array(GW * GH).fill(-1);
@@ -3190,12 +3345,13 @@ function botPlan(f) {             // 目標までの距離マップ（食べら�
   return dist;
 }
 function botPick() {
-  const fe = feast(), wB = ham.body < C.GROW_GOAL ? 1 / ham.body : 0.02, wT = ham.teeth < C.GROW_GOAL ? 1 / ham.teeth : 0.02;
+  const fe = feast(), lb = bot.lean === 'B' ? bot.leanK : bot.lean === 'T' ? 1 / bot.leanK : 1;
+  const wB = (ham.body < C.GROW_GOAL ? 1 / ham.body : 0.02) * lb, wT = (ham.teeth < C.GROW_GOAL ? 1 / ham.teeth : 0.02) / lb;
   let best = null, bs = -1;
   for (const f of foods) {
     if (!f.edible || f.born < 1 || f.suck || (bot.ban.get(f) ?? -1) > clock) continue;
     const g = gains(f.s, f.h);
-    const sc = fe ? (f.cluster ? 1.5 : 1) / (rectDist(f, ham.x, ham.y) + 30) : (g.body * wB + g.teeth * wT) / (rectDist(f, ham.x, ham.y) + 60);   // サビ：近い物からどんどん
+    const sc = fe ? (f.special ? 2 : f.cluster ? 1.5 : 1) / (rectDist(f, ham.x, ham.y) + 30) : (g.body * wB + g.teeth * wT) / (rectDist(f, ham.x, ham.y) + 60);   // サビ：近い物からどんどん
     if (sc > bs) { bs = sc; best = f; }
   }
   return best;
