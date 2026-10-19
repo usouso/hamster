@@ -230,6 +230,17 @@ const CONFIG = {
   SHOW_LABELS: false,       // 食べ物の大きさ・硬さの数値を出す（false でも、「？」の説明を開いている間は出す）
   // バンドの顔ぶれ：画面の下に、その曲のバンドの楽器を10マス並べる（果物側＝体の5つはオレンジ、宝石側＝歯の5つは青）。鳴り始めたら光って、拍に合わせて弾む
   BAND_PANEL: true,
+  // バンドの仲間（P キーで入り切り。表示は「仲間ON」「仲間OFF」。切ると17回目のまま）
+  //   1曲に5人。i 人目は、その曲の体側の楽器 i と歯側の楽器 i（S.band の body[i] と teeth[i]）を持ってくる。広場で1人ずつ待っていて、ハムスターが触れると仲間になる
+  //   仲間になった瞬間に、その仲間の楽器で短いフレーズ（次の小節の頭へ向かう拾い出し）が鳴り、次の小節の頭から伴奏に加わる
+  //   仲間ON のときは、体と歯の育ち具合では楽器が増えない（MUSIC_LAYERS_AT を使わない）。サビの伴奏も、仲間にした人の楽器だけ
+  //   仲間までの間に、小さな果物を一列に並べる（食べ物の道）。次の仲間が画面の外にいるときは、画面の端に矢印と顔
+  PALS: true,
+  PAL_EVERY: 15,            // i 人目（0から数える）は、曲の始まりから PAL_EVERY × i 秒たつまでは現れない（サビまで（約1分半）に5人そろう、くらいの間隔に）
+  PAL_AFTER: 2,             // 仲間にしてから、次の仲間が現れるまで、少なくともこの秒数
+  PAL_DIST: [0, 420, 560, 700, 820],   // 2人目からの、現れる場所までの距離の目安（px）。1人目は、曲の始まりから画面の中に見える近さ
+  PAL_STOP_BEFORE: 8,       // サビの始まりまでこの秒数より短いときは、新しい仲間を出さない（サビでは探さない）
+  PATH_GAP: 60,             // 食べ物の道の、果物どうしの間隔（px）
   // 1曲の目標：噴き出した宝の数で ★1〜★3（サビの間は、頬袋の中の数が★の目盛りを満たしていく）
   STARS: [100, 200, 300],
 
@@ -669,6 +680,7 @@ function enterPart(p) {
     song.atChorus = { body: ham.body, teeth: ham.teeth, eaten: eatenCount };
     drive.lv = 1; drive.at = audioNow();              // 演奏：サビは、いちばん厚い所から始まる（食べないと、1小節で薄くなる）
     specialStart();                                   // 特別な食べ物：体と歯の比で種類を、育ち具合で数を決める
+    palsChorus();                                     // バンドの仲間：まだ会えていない仲間は消える
     for (const f of foods) { f.reviveIn = 0.001; }
     say('食べ放題！', '#ffe14a', 3);
     bandAll();                                        // バンドの顔ぶれ：全員が光って「全員集合！」
@@ -756,6 +768,7 @@ function spawnSpecial(type) {   // ハムスターのまわり（ほかの物と
 // 締め：主音の着地と同時に、頬袋の中身を全部、噴水や花火のように噴き出す。放物線を描いて巣（スタート地点）に降り注ぎ、宝の山に積もる
 function burst() {
   song.burst = true; ham.shiver = 0;
+  palsParty();                                       // ついて歩いていた仲間も、巣のまわりで喜ぶ
   const items = ham.pouch.splice(0), n = items.length;
   song.burstN = n;
   items.forEach((it, i) => {   // start：飛び出す時刻（曲の時計）。音と見た目がずれないように、飛んでいる物は曲の時計で進める
@@ -827,6 +840,7 @@ function reset() {
   mus.groove = 0; mus.grooveAt = -9; rowSnd.next = 0; rowSnd.mel = -1;
   noteFxs = []; drive.lv = 0; drive.at = -99; duckReset(); specialClear();
   tiltRebase();                                             // スマホの傾き：いまの持ち方を「まっすぐ」に
+  palsReset();                                              // バンドの仲間：1人目から
   document.body.style.background = S.look.bg;               // 広場の外の色も、曲に合わせて
   Object.assign(cam, { x: ham.x, y: ham.y, zoom: zoomFor(ham.body), lx: 0, ly: 0, vx: 0, vy: 0, wide: 0, fast: false });
   if (AC && soundMode === 'music' && !mus.timer) musicStart();
@@ -911,7 +925,7 @@ function spawnGroup(s, h, kind, n, instant) {
     const cand = rel.map(([u, v]) => ({ x: cx + u, y: cy + v, w }));
     // 列は、宝石と宝石の間（通り道）にも、取れない物が入らないようにする
     const lane = kind === 'row' ? cand.slice(1).map((p, i) => ({ x: (p.x + cand[i].x) / 2, y: (p.y + cand[i].y) / 2, w })) : [];
-    if (cand.some(p => onPile(p.x, p.y, w)) || lane.some(p => onPile(p.x, p.y, w))) continue;   // 巣の山の上には置かない
+    if (cand.some(p => onPile(p.x, p.y, w) || palNear(p.x, p.y, w)) || lane.some(p => onPile(p.x, p.y, w))) continue;   // 巣の山の上と、待っている仲間のそばには置かない
     last = cand;
     let ok = cand.every(p => Math.hypot(p.x - ham.x, p.y - ham.y) >= (loose ? ham.r + w / 2 + 30 : keepAway(w) + clear * relax)), minGap = Infinity;
     for (const o of foods) {
@@ -980,7 +994,7 @@ function spawnFood(s, h, boulder = false, instant = false, near = 0, look = unde
       y = w / 2 + 8 + Math.random() * (C.FIELD_H - w - 16);
       if (Math.hypot(x - ham.x, y - ham.y) < away) continue;
     }
-    if (onPile(x, y, w)) continue;                       // 巣の山の上には置かない
+    if (onPile(x, y, w) || palNear(x, y, w)) continue;   // 巣の山の上と、待っている仲間のそばには置かない
     ok = true;
     let minGap = Infinity;
     if (blocker && Math.min(x - w / 2, y - w / 2, C.FIELD_W - x - w / 2, C.FIELD_H - y - w / 2) < need) ok = false;
@@ -1191,7 +1205,7 @@ function eat(f) {
   if (fi >= 0) foods.splice(fi, 1);
   eatenCount++;
   if (feast()) { song.chorusEaten++; driveUp(); }   // 演奏：食べると勢いが上がる
-  if (!f.boulder && !f.cluster && !f.special) respawns.push({ s: f.s, h: f.h, look: f.look === 'shell' ? 'shell' : undefined, t: C.RESPAWN_SEC * (0.7 + Math.random() * 0.6) });
+  if (!f.boulder && !f.cluster && !f.special && !f.path) respawns.push({ s: f.s, h: f.h, look: f.look === 'shell' ? 'shell' : undefined, t: C.RESPAWN_SEC * (0.7 + Math.random() * 0.6) });
   const left = ham.pouch.filter(it => it.cheek < 0).reduce((a, it) => a + it.s, 0);
   const right = ham.pouch.filter(it => it.cheek > 0).reduce((a, it) => a + it.s, 0);
   const cheek = left <= right ? -1 : 1;
@@ -1378,6 +1392,7 @@ function warpToStart() {
   }
   rings.push({ x: ham.x, y: ham.y, r0: ham.r, grow: 30, t: 0, life: 0.35, width: 3, color: '255,255,255' });
   ham.x = to[0]; ham.y = to[1]; ham.vx = ham.vy = 0; cam.x = ham.x; cam.y = ham.y;
+  palsWarp();
   for (const it of ham.pouch) it.fly = 1;
   rings.push({ x: ham.x, y: ham.y, r0: ham.r, grow: 40, t: 0, life: 0.45, width: 3, color: '255,255,255' });
 }
@@ -1414,6 +1429,191 @@ function relaxPouch(dt) {
       }
     }
   }
+}
+
+// ---------------- バンドの仲間 ----------------
+//   1人ずつ広場で待っていて、触れると仲間になる。仲間は、ハムスターの後ろに一列でついて歩く（ぶつからない・食べない）
+//   仲間 i 人目の楽器（体側 i・歯側 i）は、仲間になった次の小節の頭（joinBar）から伴奏に加わる
+const PAL_KINDS = ['squirrel', 'bird', 'frog', 'mole', 'mouse'];   // リス・小鳥・カエル・モグラ・ネズミ
+const pals = { list: [], cur: null, nextAt: 0, trail: [] };      // list：現れた順（i 人目）。cur：いま待っている仲間
+const palKind = i => PAL_KINDS[(i + song.idx) % PAL_KINDS.length];   // 曲ごとに、並び順を変える
+const palR = () => clamp(ham.r * 0.45 + 9, 14, 26);                  // 仲間の大きさ（最初は、ハムスターより少し大きく、見つけやすく。育っても、小さな動物のまま）
+function palsReset() { pals.list = []; pals.cur = null; pals.nextAt = 0; pals.trail = []; bot.palBan = 0; bot.palSince = 0; }
+// 仲間 i 人目の楽器が、その小節で鳴っているか（仲間になった次の小節の頭から）
+const palLv = (i, bar) => { const p = pals.list[i]; return p && p.joinBar !== undefined && bar >= p.joinBar ? 1 : 0; };
+const palNear = (x, y, w) => { const p = pals.cur; return !!p && p.state === 'wait' && Math.hypot(x - p.x, y - p.y) < palR() + w / 2 + 24; };   // 待っている仲間のそばには、物を置かない
+function viewHalf() {   // いまの寄り具合が落ち着いたときに、画面に見える広場の半分の幅・高さ（曲の始まりの、巣を見せるために引いている分は除く）
+  const VS = view.VS * zoomFor(ham.body) / Math.max(1e-3, cam.zoom);
+  return [view.w / 2 / VS, view.h / 2 / VS];
+}
+function palSpot(i) {   // 仲間を置く場所：巣の山と、ほかの物と重ならない所。1人目は画面の中、2人目からはだんだん遠くへ
+  const R = palR(), w = R * 2 + 16, [hw, hh] = viewHalf(), far = C.PAL_DIST[Math.min(i, C.PAL_DIST.length - 1)];
+  const inField = (x, y) => x > R + 20 && y > R + 20 && x < C.FIELD_W - R - 20 && y < C.FIELD_H - R - 20;
+  const free = (x, y, sep, k) => !onPile(x, y, w) && foods.every(o => rectGap(o, { x, y, w }).gap >= (o.edible ? sep : sep + (ham.r * 2 + 8) * k));   // 食べられない物からは、ハムスターが通れるだけ離す（どの向きからでも会いに行ける。見つからなければ、少しずつゆるめる）
+  for (let pass = 0; pass < 4; pass++) {
+    for (let tries = 0; tries < 400; tries++) {
+      const a = Math.random() * TAU;
+      let x, y;
+      if (i === 0) {   // 1人目：画面の中（見える範囲の7割まで）で、巣の山の外の、少し離れた所（道を作れるくらい）
+        const vis = 1 / Math.hypot(Math.cos(a) / hw, Math.sin(a) / hh), lo = Math.max(170, pileClear() + R + 30, ham.r + R + 60), hi = vis * [0.72, 0.82, 0.9, 0.92][pass];
+        if (lo > hi) continue;
+        const d = lerp(lo, hi, Math.random() * 0.7); x = ham.x + Math.cos(a) * d; y = ham.y + Math.sin(a) * d;
+      }
+      else { const d = far * (0.85 + Math.random() * 0.3) * [1, 0.85, 0.7, 0.55][pass]; x = ham.x + Math.cos(a) * d; y = ham.y + Math.sin(a) * d; }
+      if (inField(x, y) && free(x, y, [C.ITEM_SEP + 10, C.ITEM_SEP + 6, C.ITEM_SEP + 4, C.ITEM_SEP][pass], [1, 0.6, 0.3, 0][pass])) return [x, y];
+    }
+  }
+  for (let tries = 0; tries < 400; tries++) {   // どうしても見つからない：重ならないことだけ守る
+    const x = R + 20 + Math.random() * (C.FIELD_W - 2 * R - 40), y = R + 20 + Math.random() * (C.FIELD_H - 2 * R - 40);
+    if (free(x, y, C.ITEM_SEP, 0)) return [x, y];
+  }
+  return null;
+}
+function spawnPal() {
+  const i = pals.list.length, at = palSpot(i);
+  if (!at) { pals.nextAt = clock + 1; return; }
+  const p = { i, kind: palKind(i), x: at[0], y: at[1], state: 'wait', t: 0, born: clock, seed: Math.random() };
+  pals.list.push(p); pals.cur = p;
+  rings.push({ x: p.x, y: p.y, r0: palR(), grow: 40, t: 0, life: 0.6, width: 4, color: '255,240,170' });
+  palPath(p);
+}
+function palJoin(p) {   // 仲間になった：喜んで跳ねて、光の輪。その仲間の楽器で短いフレーズ。次の小節の頭から伴奏に加わる
+  bot.palSince = 0;
+  p.state = 'join'; p.t = 0; p.joinedAt = song.t; pals.cur = null; pals.nextAt = clock + C.PAL_AFTER;
+  const R = palR();
+  rings.push({ x: p.x, y: p.y, r0: R, grow: 70 + R, t: 0, life: 0.7, width: 6, color: '255,230,120' });
+  rings.push({ x: p.x, y: p.y, r0: R * 0.6, grow: 40 + R, t: -0.1, life: 0.6, width: 3, color: '255,255,255' });
+  sparks.push({ x: p.x, y: p.y - R, t: 0, life: 0.7, s: 8 + R * 0.4 });
+  band.fxB[p.i] = band.fxT[p.i] = 1.2;
+  if (C.BAND_PANEL) say('仲間！', '#ffd27a', 2);
+  palPhrase(p);
+}
+// 仲間のフレーズ：いまの次の16分音符で鳴り始めて、次の小節の頭まで（少なくとも1拍）、その仲間の楽器で8分音符ずつ駆け上がる拾い出し。小節の頭から伴奏に加わる
+function palPhrase(p) {
+  const parts = [...S.body[p.i], ...S.teeth[p.i]], nb = S.body[p.i].length;
+  const music = !!(AC && soundMode === 'music' && mus.timer && C.SOUND_VOLUME > 0);
+  if (!music) {   // 効果音モード・音なし：その場で6音。伴奏（音楽モードのとき）は次の小節の頭から
+    p.joinBar = Math.ceil(song.t / barSec() + 0.25 + 1e-6);
+    if (!AC || !live()) return;
+    const ch = CH.tonic;
+    for (let j = 0; j < 6; j++) parts.forEach((pt, n) => { const t = AC.currentTime + 0.03 + j * 0.1; palNote(pt, j, t, 0.8 + 0.08 * j, ch); if (n === 0) myNote(p.x, p.y, t, 'fruit', 0.5); if (n === nb) myNote(p.x, p.y - palR(), t, 'gem', 0.5); });
+    return;
+  }
+  const k0 = gridIdx(AC.currentTime + 0.03, 1), B = Math.ceil((k0 + 4) / 16) * 16;
+  p.joinBar = B / 16; p.phraseAt = T16(k0); p.joinAt = T16(B);
+  const b = curBus; curBus = musicBus;
+  try {
+    for (let k = k0, j = 0; k < B; k += k % 2 ? 1 : 2, j++) {       // 最初の1音はすぐ（次の16分音符）、そのあとは8分音符ずつ
+      const t = T16(k), ch = stepChord(k), u = (k - k0) / (B - k0);
+      parts.forEach((pt, n) => palNote(pt, j, t, 0.8 + 0.5 * u, ch));
+      myNote(p.x, p.y, t, j % 2 ? 'gem' : 'fruit', 0.4 + 0.4 * u);
+    }
+  } finally { curBus = b; }
+}
+function palNote(pt, j, t, lvl, ch) {   // 刻みの1つを、フレーズ用に1音だけ鳴らす（音の高さのある楽器は、和音の音を順に上がる）
+  const [name, , o = {}] = pt, solo = { ...o, bars: undefined, in: undefined, last: undefined, from: undefined };
+  if (pickNotes(o, ch, 0)) Object.assign(solo, { arp: 'cycle', chord: false, n: undefined, hz: undefined, max: 1, len: 1.6 });
+  playPart([name, 'x', solo], j, t, lvl, ch);
+}
+function palsTick(dt) {
+  if (!C.PALS) return;
+  const R = palR(), last = pals.trail[0];
+  if (!last || Math.hypot(ham.x - last.x, ham.y - last.y) >= 3) { pals.trail.unshift({ x: ham.x, y: ham.y }); if (pals.trail.length > 500) pals.trail.length = 500; }   // ハムスターの通った跡（仲間は、この上をついてくる）
+  // 次の仲間：前の仲間に会ってから少しあと。曲の始まりから PAL_EVERY × 人数 秒たってから。サビの前まで
+  const toChorus = P('chorus').from * barSec() - song.t;
+  if (!pals.cur && pals.list.length < 5 && !feast() && !song.burst && !songOver && song.part !== 'build' && toChorus > C.PAL_STOP_BEFORE
+      && song.t >= C.PAL_EVERY * pals.list.length && clock >= pals.nextAt && view.w > 1) spawnPal();
+  const p = pals.cur;
+  if (p && p.state === 'wait') {
+    p.t += dt;
+    if (!songOver && !song.burst && Math.hypot(p.x - ham.x, p.y - ham.y) < ham.r + R + 4) palJoin(p);   // 触れたら、仲間になる
+  }
+  // ついて歩く仲間：通った跡の上に、なかま順に一列で
+  let j = 0;
+  for (const q of pals.list) {
+    if (q.state === 'join' || q.state === 'follow') {
+      q.t += dt;
+      if (q.state === 'join' && q.t > 0.55) q.state = 'follow';
+      if (q.state === 'follow') {
+        const [tx, ty] = trailAt(ham.r + R + 6 + j * (R * 2 + 6)), k = 1 - Math.exp(-dt * 10);
+        q.x += (tx - q.x) * k; q.y += (ty - q.y) * k;
+      }
+      j++;
+    } else if (q.state === 'party') {   // 締め：巣のまわりで喜ぶ
+      q.t += dt; const k = 1 - Math.exp(-dt * 3); q.x += (q.px - q.x) * k; q.y += (q.py - q.y) * k;
+    } else if (q.state === 'gone') q.t += dt;
+  }
+}
+function trailAt(d) {   // 通った跡を、ハムスターから d だけさかのぼった所
+  let acc = 0, prev = { x: ham.x, y: ham.y };
+  for (const pt of pals.trail) { const s = Math.hypot(pt.x - prev.x, pt.y - prev.y); if (acc + s >= d) { const u = (d - acc) / (s || 1); return [lerp(prev.x, pt.x, u), lerp(prev.y, pt.y, u)]; } acc += s; prev = pt; }
+  return [prev.x, prev.y];
+}
+function palsChorus() {   // サビ：まだ会えていない仲間は消える（サビでは探さない）
+  const p = pals.cur;
+  if (p && p.state === 'wait') { p.state = 'gone'; p.t = 0; rings.push({ x: p.x, y: p.y, r0: palR(), grow: 24, t: 0, life: 0.4, width: 3, color: '255,255,255' }); }
+  pals.cur = null;
+}
+function palsParty() {   // 締め：噴き出した宝が巣に積もるとき、ついて歩いていた仲間も、巣のまわりで喜ぶ
+  const fol = pals.list.filter(q => q.state === 'join' || q.state === 'follow'), R = pileR(nest.total + song.burstN) * 0.95 + palR() + 20;
+  fol.forEach((q, n) => { const a = -Math.PI / 2 + (n - (fol.length - 1) / 2) * 0.55 + Math.PI; q.state = 'party'; q.t = 0; q.px = C.FIELD_W / 2 + Math.cos(a) * R; q.py = C.FIELD_H / 2 - Math.sin(a) * R * 0.85; });
+}
+function palsWarp() {   // スタート地点に戻った：ついて歩く仲間も、すぐそばへ
+  pals.trail = [];
+  for (const q of pals.list) if (q.state === 'follow' || q.state === 'join') { q.x = ham.x; q.y = ham.y; }
+}
+function togglePals() {   // P キー：仲間の入り切り（入れると、その場から1人目が現れる）
+  C.PALS = !C.PALS; palsReset(); pals.nextAt = clock;
+  say(C.PALS ? '仲間ON' : '仲間OFF', '#ffffff', 3);
+}
+// 食べ物の道：今いる場所から仲間まで、小さな果物を一列に（ゆるいカーブで。食べられない物をよける）
+function palPath(p) {
+  const x0 = ham.x, y0 = ham.y, x1 = p.x, y1 = p.y, d = Math.hypot(x1 - x0, y1 - y0);
+  if (d < C.PATH_GAP * 2) return 0;
+  const passR = ham.r + 4;
+  const blocked = (x, y) => x < passR || y < passR || x > C.FIELD_W - passR || y > C.FIELD_H - passR || foods.some(o => !o.edible && rectDist(o, x, y) < passR);
+  const curve = b => {   // 2点の間を、横へ b（距離に対する割合）だけふくらませた、ゆるいカーブ
+    const nx = -(y1 - y0) / d, ny = (x1 - x0) / d, cx = (x0 + x1) / 2 + nx * d * b, cy = (y0 + y1) / 2 + ny * d * b, pts = [];
+    for (let k = 0; k <= 80; k++) { const u = k / 80; pts.push([(1 - u) ** 2 * x0 + 2 * u * (1 - u) * cx + u * u * x1, (1 - u) ** 2 * y0 + 2 * u * (1 - u) * cy + u * u * y1]); }
+    return pts;
+  };
+  let line = null;
+  const bends = Math.random() < 0.5 ? [0.16, -0.16, 0.28, -0.28, 0.07, -0.07, 0.4, -0.4] : [-0.16, 0.16, -0.28, 0.28, -0.07, 0.07, -0.4, 0.4];
+  for (const b of bends) { const pts = curve(b); if (pts.every(([x, y]) => !blocked(x, y))) { line = pts; p.bend = b; break; } }
+  if (!line) { line = gridLine(p); p.bend = 'grid'; }   // カーブでは通れない：格子の上で探した道を、なめらかにして
+  if (!line || line.length < 2) return 0;
+  const s = clamp(ham.body * 0.3, 0.6, 1.8), h = Math.min(s * 0.4, ham.teeth * 0.6), w = px(s);   // その時のハムスターが、必ず食べられる小さな果物（大きさをそろえる）
+  const end = palR() + 18 + w / 2;
+  let acc = 0, total = 0, next = ham.r + 24 + w / 2, n = 0;
+  for (let k = 1; k < line.length; k++) total += Math.hypot(line[k][0] - line[k - 1][0], line[k][1] - line[k - 1][1]);
+  for (let k = 1; k < line.length && next < total - end; k++) {
+    const [ax, ay] = line[k - 1], [bx, by] = line[k], s2 = Math.hypot(bx - ax, by - ay);
+    while (next <= acc + s2 && next < total - end) {
+      const u = (next - acc) / (s2 || 1), x = lerp(ax, bx, u), y = lerp(ay, by, u);
+      next += C.PATH_GAP;
+      if (onPile(x, y, w) || foods.some(o => rectGap(o, { x, y, w }).gap < C.ITEM_SEP)) continue;
+      const f = { s, h, w, x, y, boulder: false, look: 'soft', seed: Math.random(), born: 0, wait: n * 0.035, flash: 0, shake: 0, msgCd: 0, hitCd: 0, edible: true, revive: 0, reviveIn: 0, cluster: 0, dim: 0, path: true };
+      foods.push(f); n++;
+    }
+    acc += s2;
+  }
+  p.pathN = n; p.pathLen = Math.round(total);
+  return n;
+}
+function gridLine(p) {   // 格子の上で、仲間からハムスターまでの道を探す（食べられない物をよける）→ なめらかに
+  const dist = botPlan({ x: p.x, y: p.y, w: palR() * 2 });
+  let gx = Math.floor(ham.x / GRID), gy = Math.floor(ham.y / GRID);
+  if (gx < 0 || gy < 0 || gx >= GW || gy >= GH || dist[gy * GW + gx] < 0) return null;
+  const pts = [[ham.x, ham.y]];
+  for (let guard = 0; guard < GW * GH && dist[gy * GW + gx] > 0; guard++) {
+    let best = null;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const x = gx + dx, y = gy + dy; if ((dx || dy) && x >= 0 && y >= 0 && x < GW && y < GH && dist[y * GW + x] >= 0 && dist[y * GW + x] < dist[gy * GW + gx] && (!best || dist[y * GW + x] < dist[best[1] * GW + best[0]])) best = [x, y]; }
+    if (!best) break;
+    [gx, gy] = best; pts.push([(gx + 0.5) * GRID, (gy + 0.5) * GRID]);
+  }
+  pts.push([p.x, p.y]);
+  for (let pass = 0; pass < 3; pass++) for (let k = 1; k < pts.length - 1; k++) pts[k] = [(pts[k - 1][0] + pts[k][0] * 2 + pts[k + 1][0]) / 4, (pts[k - 1][1] + pts[k][1] * 2 + pts[k + 1][1]) / 4];
+  return pts;
 }
 
 // ---------------- 更新 ----------------
@@ -1472,6 +1672,7 @@ function update(dt) {
 
   for (const f of foods) {
     f.edible = canEat(f);
+    if (f.wait > 0) { f.wait -= dt; continue; }             // 食べ物の道：ハムスターの方から順に、ぽんぽんと現れる
     if (f.born < 1) {                                       // 降ってくる物は、ゆっくり落ちてくる（特別な食べ物は、もっとゆっくり。着いたら輪が広がる）
       f.born = Math.min(1, f.born + dt / (f.special ? C.SPECIAL_FALL : f.fall ? 0.55 : 0.35));
       if (f.special && f.born >= 1) rings.push({ x: f.x, y: f.y, r0: f.w * 0.5, grow: 26 + f.w * 0.6, t: 0, life: 0.5, width: 3, color: '255,255,255' });
@@ -1555,6 +1756,7 @@ function update(dt) {
   for (const f of foods) if (f.need && (f.need.t += dt) > 1.8) f.need = null;
   starTick(dt);
   bandTick(dt);
+  palsTick(dt);                          // バンドの仲間（現れる・仲間になる・ついて歩く）
   for (const g of rings) g.t += dt;
   rings = rings.filter(g => g.t < g.life);
   for (const k of sparks) k.t += dt;
@@ -1678,6 +1880,7 @@ function render() {
   }
   drawNest();
   drawFoods();
+  drawPals();                                // バンドの仲間（ついて歩く仲間は、ハムスターの後ろ）
   drawHamster();
   drawFlyers();
   for (const m of motes) {                  // 体・歯が伸びた：オレンジ（体）・青（歯）の小さな光が上っていく
@@ -1724,6 +1927,7 @@ function render() {
   ctx.restore();
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawPalArrow(ax, ay, aw, ah);                          // 次の仲間が画面の外にいるときの矢印
   drawHUD(W, compact);
   drawSongBand(W, BAND);
   const rowY = !touchUI ? H - 23 : between ? H - 8 - 19 : H - 8 - 38 - 22;
@@ -1815,13 +2019,14 @@ function drawBottom(x0, x1, y) {
 // バンドの顔ぶれ：左にオレンジの5マス（果物で育つ＝体の層）、右に青の5マス（宝石で育つ＝歯の層）。鳴っている楽器は光って、拍に合わせて弾む
 const band = { onB: [], onT: [], fxB: [], fxT: [], all: 0 };
 function bandReset() { band.onB = [0, 0, 0, 0, 0].map(() => false); band.onT = band.onB.slice(); band.fxB = [0, 0, 0, 0, 0]; band.fxT = [0, 0, 0, 0, 0]; band.all = 0; }
-const bandLv = (w, i) => {   // その層の厚さ。サビは全員（演奏ON のときは勢いの分だけ。バスドラム・ハイハットの入ったマスは、いつも光る）
-  if (song.part !== 'chorus') return layer(w === 'B' ? ham.body : ham.teeth, i);
+const bandLv = (w, i) => {   // その層の厚さ。サビは全員（演奏ON のときは勢いの分だけ。バスドラム・ハイハットの入ったマスは、いつも光る）。仲間ON：仲間にした人の楽器だけ
+  if (C.PALS) { const on = palLv(i, Math.floor(song.t / barSec() + 1e-6)); if (!on || song.part !== 'chorus') return on; }
+  else if (song.part !== 'chorus') return layer(w === 'B' ? ham.body : ham.teeth, i);
   return S[w === 'B' ? 'body' : 'teeth'][i].some(pt => BEAT.test(pt[0])) ? 1 : driveAt(audioNow());
 };
 function bandTick(dt) {   // その層が鳴り始めたら：マスが大きく光って「○○ 参加！」
   for (const w of ['B', 'T']) for (let i = 0; i < 5; i++) {
-    if (layer(w === 'B' ? ham.body : ham.teeth, i) > 0 && !band['on' + w][i]) {
+    if (!C.PALS && layer(w === 'B' ? ham.body : ham.teeth, i) > 0 && !band['on' + w][i]) {   // 仲間ON のときは、仲間になったときに「仲間！」
       band['on' + w][i] = true; band['fx' + w][i] = 1.2;
       if (C.BAND_PANEL && started && !feast()) say(`${S.band[w === 'B' ? 'body' : 'teeth'][i]} 参加！`, w === 'B' ? '#ffb35c' : '#9fd4ff', 2);
     }
@@ -1829,7 +2034,11 @@ function bandTick(dt) {   // その層が鳴り始めたら：マスが大きく
   }
   if (band.all > 0) band.all = Math.max(0, band.all - dt);
 }
-function bandAll() { band.all = 1.6; band.fxB = [1.2, 1.2, 1.2, 1.2, 1.2]; band.fxT = band.fxB.slice(); if (C.BAND_PANEL) say('全員集合！', '#ffd27a', 2); }   // サビ：全員が光る
+function bandAll() {   // サビ：全員が光る（仲間ON：仲間にした人だけ。5人そろったときだけ「全員集合！」）
+  const met = i => !C.PALS || palLv(i, 1e9) > 0, n = [0, 1, 2, 3, 4].filter(met).length;
+  if (C.PALS) { band.fxB = [0, 1, 2, 3, 4].map(i => (met(i) ? 1.2 : 0)); band.fxT = band.fxB.slice(); if (n === 5 && C.BAND_PANEL) say('全員集合！', '#ffd27a', 2); return; }
+  band.all = 1.6; band.fxB = [1.2, 1.2, 1.2, 1.2, 1.2]; band.fxT = band.fxB.slice(); if (C.BAND_PANEL) say('全員集合！', '#ffd27a', 2);
+}
 function drawBand(x0, x1, y, gl, gr) {
   const beat = Math.pow(1 - beatPhase(), 2), small = touchUI, h = small ? 12 : 26, gap = small ? 3 : 5;
   const side = (from, to, w) => {
@@ -1844,10 +2053,12 @@ function drawBand(x0, x1, y, gl, gr) {
       ctx.fillStyle = lv > 0 ? `rgba(${col},${0.25 + 0.7 * lv})` : 'rgba(50,50,50,0.85)';
       ctx.strokeStyle = `rgba(${col},${lv > 0 ? 1 : 0.45})`; ctx.lineWidth = lv > 0 ? 1.6 : 1;
       ctx.beginPath(); ctx.roundRect(bx, by, bw, h, small ? 3 : 6); ctx.fill(); ctx.stroke();
-      if (!small && bw >= 30) {                        // 楽器の名前（入りきらないときは小さく）
+      const face = C.PALS ? Math.min(h - 2, bw - 2) : 0;   // 仲間ON：マスの左に、その仲間の顔（まだ会っていない仲間は影）
+      if (face) { const met = palLv(i, 1e9) > 0, fr = face / 2 * 0.82; drawPal(palKind(i), bx + face / 2 + 1, by + h / 2 + fr * 0.08, fr, { sil: !met }); }
+      if (!small && bw - face >= 30) {                 // 楽器の名前（入りきらないときは小さく）
         let fs = 12; ctx.font = `700 ${fs}px ${FONT}`;
-        const tw = ctx.measureText(names[i]).width; if (tw > bw - 6) { fs = Math.max(8, fs * (bw - 6) / tw); ctx.font = `700 ${fs}px ${FONT}`; }
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = lv > 0 ? '#fff' : '#8a8a8a'; ctx.fillText(names[i], bx + bw / 2, by + h / 2 + 0.5);
+        const room = bw - face - 6, tw = ctx.measureText(names[i]).width; if (tw > room) { fs = Math.max(8, fs * room / tw); ctx.font = `700 ${fs}px ${FONT}`; }
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = lv > 0 ? '#fff' : '#8a8a8a'; ctx.fillText(names[i], bx + face + (bw - face) / 2, by + h / 2 + 0.5);
       }
     }
   };
@@ -2157,6 +2368,104 @@ function specialGlow(f, x, y, w, beat) {   // ほんのり光る（拍に合わ�
   const g = ctx.createRadialGradient(x, y, w * 0.2, x, y, gr); g.addColorStop(0, `rgba(${c},${a})`); g.addColorStop(1, `rgba(${c},0)`);
   ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, gr, 0, TAU); ctx.fill();
 }
+// ---- バンドの仲間の見た目 ----
+//   リス・小鳥・カエル・モグラ・ネズミ。sil：まだ会っていない（影だけ）。wave：手をふる角度。happy：にっこり（目を閉じて笑う）
+const PAL_COL = { squirrel: ['#c9803e', '#f3d9b0', '#a8612a'], bird: ['#ffd23f', '#fff1a8', '#f0a91f'], frog: ['#6cc04a', '#c9ec9a', '#4f9a34'], mole: ['#6b5a52', '#9a8478', '#4d3f39'], mouse: ['#aeb0bd', '#e2e3ea', '#8d8f9c'] };
+function drawPal(kind, x, y, r, o = {}) {
+  const [c0, c1, c2] = PAL_COL[kind] || PAL_COL.mouse, sil = !!o.sil, S0 = sil ? 'rgba(15,15,20,0.62)' : null;
+  const fill = c => { ctx.fillStyle = S0 || c; }, line = Math.max(1, r * 0.09);
+  const ell = (ex, ey, rx, ry, rot = 0) => { ctx.beginPath(); ctx.ellipse(x + ex * r, y + ey * r, rx * r, ry * r, rot, 0, TAU); ctx.fill(); };
+  ctx.lineWidth = line; ctx.strokeStyle = sil ? 'rgba(0,0,0,0)' : 'rgba(40,25,15,0.75)';
+  // 体の後ろ（しっぽ・耳）
+  if (kind === 'squirrel') { fill(c2); ell(-0.78, -0.35, 0.5, 0.85, -0.35); fill(c0); ell(-0.72, -0.42, 0.34, 0.66, -0.35); fill(c0); ell(-0.42, -0.86, 0.17, 0.22); ell(0.42, -0.86, 0.17, 0.22); }
+  if (kind === 'mouse') { fill(c0); ell(-0.56, -0.74, 0.38, 0.38); ell(0.56, -0.74, 0.38, 0.38); if (!sil) { fill('#f4a3b4'); ell(-0.56, -0.74, 0.23, 0.23); ell(0.56, -0.74, 0.23, 0.23); }
+    if (!sil) { ctx.strokeStyle = c2; ctx.lineWidth = line * 1.3; ctx.beginPath(); ctx.moveTo(x + 0.75 * r, y + 0.55 * r); ctx.quadraticCurveTo(x + 1.35 * r, y + 0.5 * r, x + 1.15 * r, y - 0.05 * r); ctx.stroke(); ctx.lineWidth = line; ctx.strokeStyle = 'rgba(40,25,15,0.75)'; } }
+  if (kind === 'bird') { fill(c2); ell(-0.12, -0.98, 0.1, 0.22, -0.4); ell(0.08, -1.0, 0.1, 0.24, 0.3); }
+  if (kind === 'frog') { fill(c0); ell(-0.42, -0.62, 0.3, 0.3); ell(0.42, -0.62, 0.3, 0.3); }
+  // 体
+  fill(c0); ctx.beginPath(); ctx.ellipse(x, y, r * (kind === 'frog' ? 1.08 : 0.95), r * (kind === 'frog' ? 0.82 : 0.92), 0, 0, TAU); ctx.fill(); if (!sil) ctx.stroke();
+  if (sil) return;
+  fill(c1); ell(0, 0.3, kind === 'frog' ? 0.62 : 0.5, 0.45);                                  // おなか
+  // 手（待っている間は、手をふる）
+  fill(c2); const wa = o.wave || 0; ell(0.78 + 0.12 * Math.cos(wa), 0.05 - 0.45 * Math.max(0, Math.sin(wa + 1)), 0.18, 0.24, wa); ell(-0.78, 0.25, 0.17, 0.22);
+  if (kind === 'mole') { fill('#f5d6b0'); ell(-0.86, 0.32, 0.16, 0.12); ell(0.88, 0.3, 0.16, 0.12); }
+  // 顔
+  const ey = kind === 'frog' ? -0.62 : -0.2, ex = kind === 'frog' ? 0.42 : 0.32;
+  if (kind === 'frog') { fill('#ffffff'); ell(-ex, ey, 0.2, 0.2); ell(ex, ey, 0.2, 0.2); }
+  ctx.fillStyle = '#1e1a18'; ctx.strokeStyle = '#1e1a18';
+  if (o.happy) { ctx.lineWidth = line * 1.1; for (const s of [-1, 1]) { ctx.beginPath(); ctx.arc(x + s * ex * r, y + (ey + 0.04) * r, r * 0.11, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke(); } }
+  else { const er = kind === 'mole' ? 0.06 : 0.1; ell(-ex, ey, er, er); ell(ex, ey, er, er); if (kind !== 'mole') { ctx.fillStyle = '#fff'; ell(-ex + 0.03, ey - 0.04, er * 0.35, er * 0.35); ell(ex + 0.03, ey - 0.04, er * 0.35, er * 0.35); } }
+  if (kind === 'bird') { fill('#ff8a2a'); ctx.beginPath(); ctx.moveTo(x - 0.13 * r, y - 0.02 * r); ctx.lineTo(x + 0.13 * r, y - 0.02 * r); ctx.lineTo(x, y + 0.2 * r); ctx.closePath(); ctx.fill(); }
+  else if (kind === 'mole') { fill('#ff9aa8'); ell(0, 0.02, 0.26, 0.18); }
+  else if (kind === 'frog') { ctx.strokeStyle = '#2f5d20'; ctx.lineWidth = line; ctx.beginPath(); ctx.arc(x, y - 0.25 * r, r * 0.42, Math.PI * 0.2, Math.PI * 0.8); ctx.stroke(); }
+  else { fill(kind === 'mouse' ? '#f08aa0' : '#5a3418'); ell(0, -0.02, 0.09, 0.07); }
+  if (kind !== 'frog') { ctx.fillStyle = 'rgba(255,120,140,0.45)'; ell(-0.5, 0.05, 0.14, 0.09); ell(0.5, 0.05, 0.14, 0.09); }   // ほっぺ
+}
+// 楽器の絵（文字は使わない）：その楽器の名前（S.band）から、太鼓・弦・鍵盤・管・シンバル・鐘・マラカス・手拍子・きらきら・電子音の絵を選ぶ
+const INST_CAT = [[/キック|太鼓|タム/, 'drum'], [/ベース|うなり|ギター|スラップ/, 'string'], [/マリンバ|和音|エレピ|ピアノ|パッド/, 'keys'], [/木管|ホーン|トランペット|クラリネット/, 'horn'],
+  [/ハット|ライド/, 'cymbal'], [/ベル|ガラス|鐘|ビブラフォン|キン/, 'bell'], [/シェイカー/, 'shaker'], [/手拍子/, 'clap'], [/きらきら/, 'sparkle'], [/アシッド|ふしぎ|ノイズ|金属/, 'synth']];
+const instCat = name => (INST_CAT.find(([re]) => re.test(name)) || [0, 'sparkle'])[1];
+function drawInst(cat, x, y, s, tint) {   // s：絵の半分の大きさ。まわりに、楽器の色（体側はオレンジ、歯側は青）のふち
+  ctx.fillStyle = 'rgba(255,253,245,0.96)'; ctx.strokeStyle = tint; ctx.lineWidth = Math.max(1, s * 0.16);
+  ctx.beginPath(); ctx.arc(x, y, s, 0, TAU); ctx.fill(); ctx.stroke();
+  const k = s * 0.62, L = Math.max(0.8, s * 0.13), dk = '#3a2c22';
+  ctx.fillStyle = dk; ctx.strokeStyle = dk; ctx.lineWidth = L; ctx.lineCap = 'round';
+  const P = (...pts) => { ctx.beginPath(); pts.forEach(([u, v], i) => (i ? ctx.lineTo(x + u * k, y + v * k) : ctx.moveTo(x + u * k, y + v * k))); };
+  if (cat === 'drum') { ctx.fillStyle = '#d24a3a'; ctx.fillRect(x - 0.75 * k, y - 0.15 * k, 1.5 * k, 0.8 * k); ctx.fillStyle = '#f2e6cf'; ctx.beginPath(); ctx.ellipse(x, y - 0.15 * k, 0.75 * k, 0.28 * k, 0, 0, TAU); ctx.fill(); ctx.stroke(); P([-0.9, -1], [-0.1, -0.25]); ctx.stroke(); P([0.9, -1], [0.1, -0.25]); ctx.stroke(); }
+  else if (cat === 'string') { ctx.fillStyle = '#b8743a'; ctx.beginPath(); ctx.ellipse(x - 0.15 * k, y + 0.35 * k, 0.48 * k, 0.5 * k, 0, 0, TAU); ctx.fill(); ctx.beginPath(); ctx.ellipse(x - 0.05 * k, y - 0.15 * k, 0.34 * k, 0.36 * k, 0, 0, TAU); ctx.fill(); P([0.05, -0.1], [0.75, -0.95]); ctx.stroke(); }
+  else if (cat === 'keys') { ctx.fillStyle = '#fff'; ctx.fillRect(x - 0.9 * k, y - 0.5 * k, 1.8 * k, 1.0 * k); ctx.strokeRect(x - 0.9 * k, y - 0.5 * k, 1.8 * k, 1.0 * k); ctx.fillStyle = dk; for (const u of [-0.45, 0, 0.45]) ctx.fillRect(x + (u - 0.1) * k, y - 0.5 * k, 0.2 * k, 0.55 * k); }
+  else if (cat === 'horn') { ctx.fillStyle = '#e8b43a'; P([-0.9, 0.12], [0.35, 0.12], [0.9, -0.45], [0.9, 0.65], [0.35, 0.12]); ctx.fill(); ctx.lineWidth = L * 1.3; P([-0.9, 0.12], [0.4, 0.12]); ctx.strokeStyle = '#a87a1a'; ctx.stroke(); P([-0.25, 0.12], [-0.25, -0.3]); ctx.stroke(); P([0.05, 0.12], [0.05, -0.3]); ctx.stroke(); }
+  else if (cat === 'cymbal') { ctx.fillStyle = '#e8c45a'; ctx.beginPath(); ctx.ellipse(x, y - 0.25 * k, 0.9 * k, 0.24 * k, -0.15, 0, TAU); ctx.fill(); P([0, -0.2], [0, 0.95]); ctx.stroke(); P([-0.4, 0.95], [0.4, 0.95]); ctx.stroke(); }
+  else if (cat === 'bell') { ctx.fillStyle = '#f0c040'; P([-0.6, 0.45], [-0.45, -0.3], [0, -0.75], [0.45, -0.3], [0.6, 0.45]); ctx.closePath(); ctx.fill(); ctx.beginPath(); ctx.arc(x, y + 0.6 * k, 0.16 * k, 0, TAU); ctx.fill(); }
+  else if (cat === 'shaker') { ctx.fillStyle = '#e36a3a'; ctx.beginPath(); ctx.arc(x + 0.2 * k, y - 0.25 * k, 0.5 * k, 0, TAU); ctx.fill(); ctx.lineWidth = L * 1.6; P([-0.05, 0.15], [-0.6, 0.85]); ctx.stroke(); }
+  else if (cat === 'clap') { ctx.fillStyle = '#f2c79a'; for (const sg of [-1, 1]) { ctx.save(); ctx.translate(x + sg * 0.28 * k, y); ctx.rotate(sg * 0.35); ctx.beginPath(); ctx.roundRect(-0.25 * k, -0.7 * k, 0.5 * k, 1.3 * k, 0.22 * k); ctx.fill(); ctx.stroke(); ctx.restore(); } }
+  else if (cat === 'synth') { ctx.strokeStyle = '#7a4ad8'; ctx.lineWidth = L * 1.3; ctx.beginPath(); for (let i = 0; i <= 16; i++) { const u = -0.9 + i * 0.1125, v = -Math.sin(i / 16 * TAU * 1.5) * 0.45; i ? ctx.lineTo(x + u * k, y + v * k) : ctx.moveTo(x + u * k, y + v * k); } ctx.stroke(); }
+  else { ctx.fillStyle = '#f0b020'; P([0, -0.95], [0.22, -0.22], [0.95, 0], [0.22, 0.22], [0, 0.95], [-0.22, 0.22], [-0.95, 0], [-0.22, -0.22]); ctx.closePath(); ctx.fill(); }
+  ctx.lineCap = 'butt';
+}
+function drawPalInsts(p, x, y, s) {   // 持ってくる2つの楽器：左に体側（オレンジのふち）、右に歯側（青のふち）
+  drawInst(instCat(S.band.body[p.i]), x - s * 1.08, y, s, '#ff9f3a');
+  drawInst(instCat(S.band.teeth[p.i]), x + s * 1.08, y, s, '#5ab8ff');
+}
+function drawPals() {   // 待っている仲間（その場で弾んで、手をふる）・仲間になった瞬間（喜んで跳ねる）・ついて歩く仲間（拍に合わせて弾む）・締め（巣のまわりで喜ぶ）
+  if (!C.PALS || !pals.list.length) return;
+  const R = palR(), beat = Math.pow(1 - beatPhase(), 2), VS = view.VS;
+  for (const p of pals.list) {
+    if (p.state === 'gone') {                                          // サビで消えた：小さな煙
+      if (p.t < 0.45) { ctx.globalAlpha = 1 - p.t / 0.45; drawPal(p.kind, p.x, p.y, R * (1 - p.t), {}); ctx.globalAlpha = 1; }
+      continue;
+    }
+    let hop = 0, wave = 0, sc = 1, happy = false;
+    if (p.state === 'wait') {
+      sc = Math.min(1, (clock - p.born) / 0.35) * (1 + 0.15 * Math.max(0, 1 - (clock - p.born) / 0.5));
+      hop = Math.abs(Math.sin(clock * 5 + p.seed * 6)) * R * 0.25; wave = Math.sin(clock * 9) * 0.9;
+      const pr = (clock * 0.9 + p.seed) % 1;                             // 足もとに、ゆっくり広がる輪（ここにいる、と分かるように）
+      ctx.strokeStyle = `rgba(255,240,170,${0.7 * (1 - pr)})`; ctx.lineWidth = 2.5 / VS; ctx.beginPath(); ctx.ellipse(p.x, p.y + R * 0.75, R * (0.9 + 1.2 * pr), R * (0.35 + 0.5 * pr), 0, 0, TAU); ctx.stroke();
+    } else if (p.state === 'join') { hop = Math.sin(Math.min(1, p.t / 0.55) * Math.PI) * R * 1.5; happy = true; }
+    else if (p.state === 'follow') hop = beat * R * 0.32 * Math.max(bandLv('B', p.i), bandLv('T', p.i));   // 自分の楽器が鳴っている間、拍に合わせて弾む
+    else if (p.state === 'party') { hop = songOver ? 0 : Math.abs(Math.sin(clock * 7 + p.i * 1.3)) * R * 0.7; happy = true; }   // 結果の画面では止まる
+    ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.beginPath(); ctx.ellipse(p.x, p.y + R * 0.85, R * 0.75 * sc, R * 0.28 * sc, 0, 0, TAU); ctx.fill();   // 影
+    drawPal(p.kind, p.x, p.y - hop, R * sc, { wave, happy });
+    if (p.state === 'wait' || p.state === 'join') drawPalInsts(p, p.x, p.y - hop - R * 1.6 * sc, Math.max(R * 0.5, 9 / VS) * sc);   // 持ってくる楽器
+  }
+}
+// 次の仲間が画面の外にいるとき：画面の端に、その向きの矢印と仲間の顔（ゆっくり小さく脈打つ）。画面の中に入ったら消す
+function drawPalArrow(ax, ay, aw, ah) {
+  const p = pals.cur;
+  if (!C.PALS || !p || p.state !== 'wait' || songOver) return;
+  const VS = view.VS, sx = view.ox + p.x * VS, sy = view.oy + p.y * VS, m = palR() * VS * 0.6;
+  if (sx > ax + m && sx < ax + aw - m && sy > ay + m && sy < ay + ah - m) return;
+  const cx = ax + aw / 2, cy = ay + ah / 2, dx = sx - cx, dy = sy - cy, ins = 30;
+  const t = Math.min(Math.abs((aw / 2 - ins) / (dx || 1e-6)), Math.abs((ah / 2 - ins) / (dy || 1e-6)));
+  const x = cx + dx * t, y = cy + dy * t, a = Math.atan2(dy, dx), r = 17 * (1 + 0.07 * Math.sin(performance.now() / 1000 * TAU * 0.8));
+  ctx.save(); ctx.translate(x, y); ctx.rotate(a);
+  ctx.fillStyle = '#ffd23f'; ctx.strokeStyle = 'rgba(60,40,10,0.85)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(r + 13, 0); ctx.lineTo(r + 1, -8); ctx.lineTo(r + 1, 8); ctx.closePath(); ctx.fill(); ctx.stroke();   // 矢印
+  ctx.restore();
+  ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.arc(x, y + 1.5, r + 2, 0, TAU); ctx.fill();
+  ctx.fillStyle = 'rgba(255,250,235,0.96)'; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+  drawPal(p.kind, x, y + r * 0.12, r * 0.6, {});
+}
 function drawFoods() {
   const beat = beatPhase(), callers = new Set(ham.callers), VS = view.VS, nearR = nest.total ? Math.max(22, pileR(nest.total)) + 70 : 0;
   const callA = 0.55 + 0.45 * ham.callStr, callCol = ham.callKind === 'hard' ? '150,245,255' : '255,205,95';
@@ -2180,6 +2489,7 @@ function drawFoods() {
       ctx.beginPath(); ctx.roundRect(x - w / 2 - 2, y - w / 2 - 2, w + 4, w + 4, w * 0.3); ctx.stroke();
     }
     if (f.special) specialGlow(f, x, y, w, beat);
+    if (f.path && dim < 0.5) { ctx.fillStyle = 'rgba(255,250,205,0.55)'; ctx.beginPath(); ctx.arc(x, y, w * 0.95 + 2 / VS, 0, TAU); ctx.fill(); }   // 食べ物の道：足もとが、ほんのり光る（ふつうの果物と見分ける）
     ctx.globalAlpha = 1 - 0.4 * dim;                      // いま取れない物は、暗く少し半透明
     paintFood(f, x, y, w, dim);
     ctx.globalAlpha = 1;
@@ -2326,7 +2636,7 @@ function helpHTML() {
   const on = v => v ? '入' : '切', k = t => `<kbd>${t}</kbd>`;
   const rules = ['果物を食べると<b>体が大きく</b>、宝石を食べると<b>歯が硬く</b>なる（どんぐりは両方）',
     '暗い物は、まだ食べられない。当たると吹き出しに、足りない方の絵が出る（果物＝大きさ、宝石＝歯）',
-    '体と歯が育つと、下のバンドの仲間が1人ずつ加わる（オレンジ＝果物で育つ楽器、青＝宝石で育つ楽器）',
+    C.PALS ? '広場で待っているバンドの仲間に会いに行くと、その仲間の楽器が加わって、後ろをついて歩く（果物の道をたどると会える。画面の外にいるときは、端に矢印）' : '体と歯が育つと、下のバンドの仲間が1人ずつ加わる（オレンジ＝果物で育つ楽器、青＝宝石で育つ楽器）',
     '「ため」のあとのサビは食べ放題。頬袋の中の数が、上の★の目盛りを満たしていく（' + C.STARS.map((t, i) => `★${i + 1}：${t}個`).join('、') + '）',
     '曲の最後に、頬袋の中身を巣へ噴き出して、宝の山になる。山は大きくなると姿が変わる',
     '宝石の列はテーマのメロディ、かたまりは和音になる。そばの物は吸い寄せて食べる',
@@ -2336,6 +2646,7 @@ function helpHTML() {
      `${k('M')}：食べ方（いま ${eatMode}。A＝Space で食べる、B＝触れたら食べる）`, `${k('N')}：音楽／効果音（いま ${soundMode === 'music' ? '音楽' : '効果音'}）`,
      `${k('T')}：テーマの候補を切り替える（いま ${themeIdx + 1}「${C.THEMES[themeIdx].name}」）`, `${k('K')}：当たった物が動く（いま ${on(C.PUSH)}）　${k('J')}：かたまりの連鎖の吸い込み（いま ${on(C.CHAIN)}）`,
      `${k('V')}：演奏（いま ${C.PLAY ? '演奏ON' : '演奏OFF'}。食べている間だけサビの伴奏が厚くなる・鳴った音が光る）　${k('B')}：サビの特別な食べ物（いま ${C.SPECIAL ? '特別ON' : '特別OFF'}）`,
+     `${k('P')}：バンドの仲間（いま ${C.PALS ? '仲間ON。会いに行くと楽器が増える' : '仲間OFF。体と歯が育つと楽器が増える'}）`,
      `${k('-')} ${k('=')}：全体の音量　${k('[')} ${k(']')}：音楽　${k(',')} ${k('.')}：効果音`, `${k('H')}：この説明（${k('Esc')} でもとじる）`];
   return '<h4>どうなればいい？</h4><ul>' + rules.map(r => `<li>${r}</li>`).join('') + '</ul><h4>操作</h4><ul>' + keys.map(r => `<li>${r}</li>`).join('') + '</ul>';
 }
@@ -2432,6 +2743,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyK' && !e.repeat) { C.PUSH = !C.PUSH; say(C.PUSH ? '押す ON' : '押す OFF', '#ffffff', 3); }       // 当たった物が動く
   if (e.code === 'KeyJ' && !e.repeat) { C.CHAIN = !C.CHAIN; say(C.CHAIN ? '連鎖 ON' : '連鎖 OFF', '#ffffff', 3); }    // かたまりの連鎖の吸い込み
   if (e.code === 'KeyV' && !e.repeat) togglePlay();      // 演奏：自分が鳴らしているとわかる仕組み
+  if (e.code === 'KeyP' && !e.repeat) togglePals();      // バンドの仲間
   if (e.code === 'KeyB' && !e.repeat) { C.SPECIAL = !C.SPECIAL; say(C.SPECIAL ? '特別ON' : '特別OFF', '#ffffff', 3); }   // サビの特別な食べ物
   if (e.code === 'KeyM' && !e.repeat && !touchUI) {   // スマホは食べ方Bで固定
     eatMode = eatMode === 'A' ? 'B' : 'A';
@@ -3389,8 +3701,8 @@ function playStep(k, t) {        // 16分音符1つぶんの背景
   const keep = lerp(C.DRIVE_KEEP, 1, D);                             //   勢いが 0 でも残す刻み（土台・バスドラム・ハイハット）は、少しだけ小さく
   const go = (list, lvl, thin = false) => { for (const pt of list) { const o = pt[2] || {}; if ((o.in && !o.in.includes(sec)) || (o.last && !lastBuild) || (o.from && G < o.from)) continue; playPart(pt, k, t, thin ? lvl * (BEAT.test(pt[0]) ? keep : D) : lvl, ch); } };
   go(S.base, keep);
-  S.body.forEach((list, i) => { const l = Math.max(layer(ham.body, i), all); if (l > 0) go(list, l, true); });     // 大きさの層（低くて温かい楽器）。サビは勢いの分だけ（バスドラム・ハイハットは残す）
-  S.teeth.forEach((list, i) => { const l = Math.max(layer(ham.teeth, i), all); if (l > 0) go(list, l, true); });   // 硬さの層（高くてきらきらした楽器）
+  S.body.forEach((list, i) => { const l = C.PALS ? palLv(i, bar) : Math.max(layer(ham.body, i), all); if (l > 0) go(list, l, true); });     // 大きさの層（低くて温かい楽器）。サビは勢いの分だけ（バスドラム・ハイハットは残す）
+  S.teeth.forEach((list, i) => { const l = C.PALS ? palLv(i, bar) : Math.max(layer(ham.teeth, i), all); if (l > 0) go(list, l, true); });   // 硬さの層（高くてきらきらした楽器）。仲間ON：仲間にした人の楽器だけ（サビも）
   if (G > 0.02) go(S.groove, G);
   if (build) { if (k === p.from * 16) riser(t, mus.t0 + P('chorus').from * barSec()); go(S.build, 1); }    // ため：サビの頭へ「シューッ」
   if (chorus) { if (k === p.from * 16) { play(S.kit.crash, t, 0, 1.8, 0.05); play(S.kit.kick, t, 0, 0, 0.14); } go(S.chorus, D); }   // サビの頭：「ジャン」。サビの層は勢いの分だけ
@@ -3469,13 +3781,15 @@ function botPlan(f) {             // 目標までの距離マップ（食べら�
   return dist;
 }
 function botPick() {
+  const pp = C.PALS && !feast() && pals.cur && pals.cur.state === 'wait' && !(bot.palBan > clock) ? pals.cur : null;
+  if (pp && (Math.hypot(pp.x - ham.x, pp.y - ham.y) < 260 || !foods.some(f => f.path && f.edible && f.born >= 1 && rectDist(f, ham.x, ham.y) < 500))) return { x: pp.x, y: pp.y, w: 2, pal: pp };   // 仲間が近い・道が尽きた：仲間へ
   const fe = feast(), lb = bot.lean === 'B' ? bot.leanK : bot.lean === 'T' ? 1 / bot.leanK : 1;
   const wB = (ham.body < C.GROW_GOAL ? 1 / ham.body : 0.02) * lb, wT = (ham.teeth < C.GROW_GOAL ? 1 / ham.teeth : 0.02) / lb;
   let best = null, bs = -1;
   for (const f of foods) {
     if (!f.edible || f.born < 1 || f.suck || (bot.ban.get(f) ?? -1) > clock) continue;
     const g = gains(f.s, f.h);
-    const sc = fe ? (f.special ? 2 : f.cluster ? 1.5 : 1) / (rectDist(f, ham.x, ham.y) + 30) : (g.body * wB + g.teeth * wT) / (rectDist(f, ham.x, ham.y) + 60);   // サビ：近い物からどんどん
+    const sc = fe ? (f.special ? 2 : f.cluster ? 1.5 : 1) / (rectDist(f, ham.x, ham.y) + 30) : (g.body * wB + g.teeth * wT) * (pp && f.path ? 4 : 1) / (rectDist(f, ham.x, ham.y) + 60);   // サビ：近い物からどんどん。仲間を探している間は、道の果物を多めに
     if (sc > bs) { bs = sc; best = f; }
   }
   return best;
@@ -3483,10 +3797,15 @@ function botPick() {
 function botThink(dt) {
   input.up = input.down = input.left = input.right = input.eat = false;
   if (songOver || song.burst) return;
-  if (!bot.target || !foods.includes(bot.target) || !bot.target.edible || bot.target.suck) { bot.target = botPick(); bot.plan = null; }
+  const tgOk = t => t && (t.pal ? t.pal.state === 'wait' : foods.includes(t) && t.edible && !t.suck);
+  if (bot.target && bot.target.pal) {                   // 仲間へ向かって6秒たっても会えない：少し寄り道してから、また向かう
+    if (!bot.palSince) bot.palSince = clock;
+    else if (clock - bot.palSince > 6) { bot.palBan = clock + 4; bot.palSince = 0; bot.target = null; }
+  } else bot.palSince = 0;
+  if (!tgOk(bot.target)) { bot.target = botPick(); bot.plan = null; }
   const f = bot.target;
   if (!f) return;
-  if (eatMode === 'A' && rectDist(f, ham.x, ham.y) - ham.r <= C.EAT_REACH) { input.eat = true; return; }
+  if (eatMode === 'A' && !f.pal && rectDist(f, ham.x, ham.y) - ham.r <= C.EAT_REACH) { input.eat = true; return; }
   if (!bot.plan || (bot.planT -= dt) <= 0) { bot.plan = botPlan(f); bot.planT = 0.3; }
   // 今いるマスの周り（5×5）で、いちばん目標に近いマスへ向かう
   const hx = Math.floor(ham.x / GRID), hy = Math.floor(ham.y / GRID);
@@ -3497,7 +3816,7 @@ function botThink(dt) {
     const d = bot.plan[y * GW + x];
     if (d >= 0 && d + Math.hypot(dx, dy) * 0.01 < bd) { bd = d + Math.hypot(dx, dy) * 0.01; bx = x; by = y; }
   }
-  if (bx < 0) { bot.ban.set(f, clock + 5); bot.target = null; return; }   // たどり着けない
+  if (bx < 0) { if (f.pal) bot.palBan = clock + 3; else bot.ban.set(f, clock + 5); bot.target = null; return; }   // たどり着けない
   let mx = (bx + 0.5) * GRID - ham.x, my = (by + 0.5) * GRID - ham.y;
   if (bd < 1) { mx = f.x - ham.x; my = f.y - ham.y; }
   const m = Math.hypot(mx, my) || 1;
