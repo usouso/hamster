@@ -30,7 +30,7 @@
   #vol .row.on .bar i.f { background: #fff27a; }
   /* 1曲の結果 */
   #result { position: fixed; z-index: 6; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(440px, calc(100vw - 32px));
-    max-height: calc(100vh - 16px); overflow-y: auto; box-sizing: border-box;
+    max-height: calc(100vh - 16px); overflow-y: auto; overflow-x: hidden; box-sizing: border-box;   /* 横のスクロールバーは出さない（出たり消えたりすると、板の高さが変わって上下に動く） */
     background: rgba(0,0,0,0.84); color: #eee; border-radius: 14px; padding: 18px 18px 14px; text-align: center;
     font: 600 15px "Yu Gothic UI", "Hiragino Sans", "Meiryo", sans-serif; }
   #result .ttl { font-size: 22px; margin-bottom: 10px; }
@@ -38,8 +38,8 @@
   #result .stars { font-size: 40px; letter-spacing: 6px; line-height: 1.1; margin: 2px 0; }
   #result .stars .on { color: #ffd84a; text-shadow: 0 0 10px rgba(255,210,80,0.85); } #result .stars .off { color: #555; }
   #result .best { font-size: 14px; color: #ccc; margin: 2px 0 4px; }
-  #result .best.rec { color: #fff27a; font-size: 22px; font-weight: 700; animation: rec 0.55s ease-in-out infinite alternate; }
-  @keyframes rec { from { transform: scale(1); } to { transform: scale(1.12); } }
+  #result .best.rec { color: #fff27a; font-size: 22px; font-weight: 700; animation: rec 0.6s ease-out 1; }   /* 新記録：出た瞬間に1回だけ弾む */
+  @keyframes rec { 0% { transform: scale(0.6); } 55% { transform: scale(1.12); } 100% { transform: scale(1); } }
   #result .up { color: #fff27a; font-size: 16px; margin: 4px 0; }
   #result .nest { display: flex; align-items: center; gap: 8px; justify-content: center; font-size: 13px; color: #ffd98a; margin: 6px 0; flex-wrap: wrap; }
   #result .nbar { width: 110px; height: 8px; background: #444; border-radius: 4px; overflow: hidden; } #result .nbar i { display: block; height: 100%; background: #e8b830; }
@@ -48,6 +48,9 @@
   /* 「？」のボタンと、遊び方の説明（ふだんは隠す） */
   .helpBtn { position: fixed; right: 10px; bottom: 6px; z-index: 4; width: 38px; height: 38px; border-radius: 19px; font-size: 18px; padding: 0; }
   .pad .helpBtn { position: static; width: 38px; }
+  /* スマホの操作の切り替え（指／傾き・進む／傾き・転がる）：文字なしで、絵だけ */
+  .ctrl { min-width: 38px; padding: 0 6px; display: flex; align-items: center; justify-content: center; gap: 2px; }
+  .ctrl svg { display: block; }
   #help { position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 7; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; }
   #help .hbox { background: rgba(22,22,22,0.96); color: #eee; border-radius: 14px; padding: 16px 18px 14px; width: min(600px, calc(100vw - 32px)); max-height: calc(100vh - 32px);
     overflow-y: auto; box-sizing: border-box; font: 500 14px "Yu Gothic UI", "Hiragino Sans", "Meiryo", sans-serif; }
@@ -76,7 +79,7 @@
 <body>
 <canvas id="c"></canvas>
 <div class="pad L" id="padL" hidden><button id="bWarp">スタートへ</button><button id="bReset">最初から</button></div>
-<div class="pad R" id="padR" hidden><button id="bVol">音量</button></div>
+<div class="pad R" id="padR" hidden><button id="bCtrl" class="ctrl" aria-label="操作"></button><button id="bVol">音量</button></div>
 <button class="helpBtn" id="bHelp" title="遊び方（H）">？</button>
 <div id="help" hidden><div class="hbox"><div class="htitle">遊び方</div><div id="hBody"></div><button class="close" id="hClose">とじる</button></div></div>
 <div id="vol" hidden></div>
@@ -204,6 +207,18 @@ const CONFIG = {
   CORNER_ASSIST: 0.8,       // 物の角の近く（体の半径のこの割合以内）でぶつかったら、角を回り込むように横へ流す
   // マウス・タッチ：押している間（指を置いている間）、その位置に向かって走る（追いかけ）。キーボードの操作はいつでも使える
   CHASE_SLOW: 50,           // マウス・指とのきょりが これ＋体の半径(px) より近くなると、ゆっくり止まる
+  // スマホの傾き操作（スマホのときだけ。パソコンの操作は変えない）。画面の隅のボタンで「指」→「傾き・進む」→「傾き・転がる」と切り替える（選んだものはブラウザに保存）
+  //   まっすぐ（止まっている）の基準は、傾き操作を始めた瞬間（曲を始めたとき・操作を切り替えたとき・画面の向きが変わったとき）のスマホの持ち方
+  //   指で画面に触れている間は、指の操作を優先する。傾きが使えない（断られた・センサーがない・TILT_WAIT 秒たっても値が来ない）ときは、自動で「指」に戻す
+  TILT_START: 'tilt',       // 最初の操作：'finger' 指 ／ 'tilt' 傾き・進む ／ 'roll' 傾き・転がる
+  TILT_DEAD: 3,             // この角度（度）までは動かない（遊び）
+  TILT_FULL: 20,            // この角度で、指の操作のいちばん速い速さになる（それ以上は速くならない）
+  TILT_EASE: 0.1,           // 傾き・進む：その速さに、この秒数くらいでなめらかに追いつく（急に止まったり動いたりしない）
+  TILT_SMOOTH: 0.04,        // 傾きの値の細かいゆれをならす秒数
+  TILT_WAIT: 1.5,           // 傾きの値がこの秒数たっても届かなければ、使えないとみなす
+  ROLL_ACCEL: 1.6,          // 傾き・転がる：いちばん傾けたときの加速（1秒に、いちばん速い速さの何倍ぶん速くなるか）
+  ROLL_FRICTION: 0.9,       // 傾き・転がる：床の摩擦（1秒に、速さが e^-0.9 ≒ 0.41 倍に。傾けるのをやめると、だんだん止まる）
+  ROLL_BOUNCE: 0.45,        // 傾き・転がる：壁に当たったときの跳ね返り（ぶつかる向きの速さの何倍で跳ね返るか）
   // 吸い寄せ：食べられる物に近づくと、物の方から小さくなりながら口へすーっと吸い込まれてきて、食べられる（体が大きいほど広い）
   SUCK_RANGE: 1.5,          // 物と体のすき間が「体の半径 × これ」より近くなったら吸い込む
   SUCK_RANGE_TOUCH: 2.1,    // スマホでは少し広めに
@@ -811,6 +826,7 @@ function reset() {
   bandReset(); motes = []; msg = null; msgQ.length = 0; ending.list = [];
   mus.groove = 0; mus.grooveAt = -9; rowSnd.next = 0; rowSnd.mel = -1;
   noteFxs = []; drive.lv = 0; drive.at = -99; duckReset(); specialClear();
+  tiltRebase();                                             // スマホの傾き：いまの持ち方を「まっすぐ」に
   document.body.style.background = S.look.bg;               // 広場の外の色も、曲に合わせて
   Object.assign(cam, { x: ham.x, y: ham.y, zoom: zoomFor(ham.body), lx: 0, ly: 0, vx: 0, vy: 0, wide: 0, fast: false });
   if (AC && soundMode === 'music' && !mus.timer) musicStart();
@@ -1403,6 +1419,7 @@ function relaxPouch(dt) {
 // ---------------- 更新 ----------------
 function update(dt) {
   clock += dt;
+  tiltTick(dt);                          // スマホの傾きの値を、なめらかに
   if (started && !songOver) time += dt;
   songTick(dt);                          // 曲の進み（場面・サビの雨・締め）
   if (song.nestShow > 0) song.nestShow -= dt;   // 曲の始まりに、巣の山を見せている
@@ -1410,20 +1427,34 @@ function update(dt) {
   // 進む向き（ix, iy）と強さ（mag：0〜1）。キーボードが優先、押していなければマウス・タッチ
   let ix = (input.right ? 1 : 0) - (input.left ? 1 : 0);
   let iy = (input.down ? 1 : 0) - (input.up ? 1 : 0), mag = 0;
+  let how = 'key';                                       // どの操作で動いているか：キーボード ＞ マウス・指 ＞ スマホの傾き
   if (ix || iy) { const l = Math.hypot(ix, iy); ix /= l; iy /= l; mag = 1; }
-  else [ix, iy, mag] = pointerSteer();
+  else if (ptr.down) { [ix, iy, mag] = pointerSteer(); how = 'finger'; }
+  else if (tiltOn()) { [ix, iy, mag] = tiltSteer(); how = tilt.mode; }
   if (ham.shiver) mag *= 0.15;                           // ためている間は、ほとんど動かない
   if (mag > 0) started = true;
   ham.ix = ix; ham.iy = iy;
-  const speed = C.MOVE_SPEED + C.MOVE_SPEED_PER_BODY * ham.body;
-  const k = 1 - Math.exp(-dt * (mag > 0 ? C.ACCEL : C.DECEL));   // 少しの加速・減速
-  ham.vx += (ix * mag * speed - ham.vx) * k; ham.vy += (iy * mag * speed - ham.vy) * k;
+  const speed = C.MOVE_SPEED + C.MOVE_SPEED_PER_BODY * ham.body, rolling = how === 'roll' && !ham.shiver;
+  if (rolling) {                                         // 傾き・転がる：傾き＝加速。床の摩擦でだんだん止まる（止まるには反対に傾ける）
+    const a = C.ROLL_ACCEL * speed * mag, fr = Math.exp(-dt * C.ROLL_FRICTION);
+    ham.vx = (ham.vx + ix * a * dt) * fr; ham.vy = (ham.vy + iy * a * dt) * fr;
+    const sp = Math.hypot(ham.vx, ham.vy);
+    if (sp > speed) { ham.vx *= speed / sp; ham.vy *= speed / sp; }   // いちばん速い速さは「傾き・進む」と同じ
+    else if (mag === 0 && sp < 4) ham.vx = ham.vy = 0;    // ほとんど止まったら、止める
+  } else {
+    const k = 1 - Math.exp(-dt * (how === 'tilt' ? 1 / C.TILT_EASE : mag > 0 ? C.ACCEL : C.DECEL));   // 少しの加速・減速
+    ham.vx += (ix * mag * speed - ham.vx) * k; ham.vy += (iy * mag * speed - ham.vy) * k;
+  }
   ham.x += ham.vx * dt; ham.y += ham.vy * dt;
   ham.r += (hamD(ham.body) / 2 - ham.r) * (1 - Math.exp(-dt * 5));
   ham.x = clamp(ham.x, ham.r, C.FIELD_W - ham.r);
   ham.y = clamp(ham.y, ham.r, C.FIELD_H - ham.r);
-  if (mag > 0.03) {
-    const a = Math.atan2(iy, ix);
+  if (rolling) {                                         // 転がる：壁に当たったら、少し跳ね返る
+    if ((ham.x <= ham.r + 0.01 && ham.vx < 0) || (ham.x >= C.FIELD_W - ham.r - 0.01 && ham.vx > 0)) ham.vx *= -C.ROLL_BOUNCE;
+    if ((ham.y <= ham.r + 0.01 && ham.vy < 0) || (ham.y >= C.FIELD_H - ham.r - 0.01 && ham.vy > 0)) ham.vy *= -C.ROLL_BOUNCE;
+  }
+  if (rolling ? Math.hypot(ham.vx, ham.vy) > 25 : mag > 0.03) {   // 顔の向き（転がるときは、進んでいる向き）
+    const a = rolling ? Math.atan2(ham.vy, ham.vx) : Math.atan2(iy, ix);
     ham.face += Math.atan2(Math.sin(a - ham.face), Math.cos(a - ham.face)) * (1 - Math.exp(-dt * 12));
   }
   if (ham.pulse > 0) ham.pulse = Math.max(0, ham.pulse - dt / 0.5);
@@ -1805,7 +1836,7 @@ function drawBand(x0, x1, y, gl, gr) {
     const bw = clamp((to - from - gap * 4) / 5, small ? 8 : 26, small ? 22 : 112), total = bw * 5 + gap * 4, start = w === 'B' ? to - total : from;   // 目標の一言に寄せて並べる
     const col = w === 'B' ? '255,159,58' : '90,184,255', names = S.band[w === 'B' ? 'body' : 'teeth'];
     for (let i = 0; i < 5; i++) {
-      const lv = bandLv(w, i), fx = band['fx' + w][i], hop = lv > 0 ? 2.5 * beat * lv : 0, bx = start + i * (bw + gap), by = y - h / 2 - hop;
+      const lv = bandLv(w, i), fx = band['fx' + w][i], hop = lv > 0 && !songOver ? 2.5 * beat * lv : 0, bx = start + i * (bw + gap), by = y - h / 2 - hop;
       if (fx > 0 || band.all > 0) {                    // 加わった瞬間・全員集合：大きく光る
         const a = Math.max(fx / 1.2, band.all / 1.6), g = 6 * a;
         ctx.fillStyle = band.all > 0 ? `rgba(255,225,110,${0.55 * a})` : `rgba(${col},${0.55 * a})`; ctx.beginPath(); ctx.roundRect(bx - g, by - g, bw + g * 2, h + g * 2, 6 + g); ctx.fill();
@@ -1858,13 +1889,27 @@ function drawSpeaker(x, y, tap) {   // スマホ：触れると音が鳴る（�
   ctx.globalAlpha = 1;
   if (tap) drawHand(x + 20, y + 12, 0.7, ph < 0.3);
 }
+function drawTiltHint(x, y) {   // スマホを左右に傾ける絵（傾けた向きへ、小さな矢印）
+  const a = Math.sin(performance.now() / 1000 * 2.4) * 0.38, w = 26, h = 46;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(a);
+  ctx.fillStyle = 'rgba(235,235,235,0.95)'; ctx.strokeStyle = '#333'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.roundRect(-w / 2, -h / 2, w, h, 6); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#5a7ea8'; ctx.fillRect(-w / 2 + 4, -h / 2 + 6, w - 8, h - 14);
+  ctx.restore();
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  const dir = Math.sign(a) || 1, ax = x + dir * 30, ay = y + h / 2 + 10;
+  ctx.globalAlpha = Math.min(1, Math.abs(a) / 0.3);
+  ctx.beginPath(); ctx.moveTo(x, ay); ctx.lineTo(ax, ay); ctx.lineTo(ax - dir * 7, ay - 6); ctx.moveTo(ax, ay); ctx.lineTo(ax - dir * 7, ay + 6); ctx.stroke();
+  ctx.globalAlpha = 1; ctx.lineCap = 'butt';
+}
 function drawStartHint() {
   const VS = view.VS, hx = view.ox + ham.x * VS, hy = view.oy + ham.y * VS, ph = (performance.now() / 1000) % 1.8, rr = ham.r * VS;
   const down = ph < 0.3, drag = clamp((ph - 0.35) / 0.9, 0, 1), e = drag * drag * (3 - 2 * drag);
   const fx = hx + rr + 30 + e * 80, fy = hy + rr * 0.5 + 6;
   if (ph < 0.5) { const q = ph / 0.5; ctx.strokeStyle = `rgba(255,255,255,${1 - q})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(hx + rr + 30, fy, 6 + q * 18, 0, TAU); ctx.stroke(); }   // 押した所に輪
   if (drag > 0 && drag < 1) { ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 3; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.moveTo(hx + rr + 30, fy); ctx.lineTo(fx, fy); ctx.stroke(); ctx.setLineDash([]); }
-  drawHand(fx, fy, touchUI ? 1 : 1.05, down);
+  if (tiltOn() || (touchUI && tilt.mode !== 'finger' && tilt.needTap)) drawTiltHint(hx + rr + 46, hy);   // 傾き操作：スマホを傾ける絵
+  else drawHand(fx, fy, touchUI ? 1 : 1.05, down);
   if (!touchUI) {                                        // 矢印キー：順に光る
     const ky = hy + rr + 74, s = 26, lit = Math.floor(performance.now() / 450) % 4;
     drawKey(hx, ky - s - 4, s, 3, lit === 3); drawKey(hx - s - 4, ky, s, 2, lit === 2); drawKey(hx, ky, s, 1, lit === 1); drawKey(hx + s + 4, ky, s, 0, lit === 0);
@@ -1965,7 +2010,7 @@ function drawNest() {
 }
 function drawFlag(x, y, h, col) {   // 小さな旗
   ctx.strokeStyle = '#4a3a28'; ctx.lineWidth = Math.max(2, h * 0.07); ctx.beginPath(); ctx.moveTo(x, y + h * 0.5); ctx.lineTo(x, y - h * 0.5); ctx.stroke();
-  const wave = Math.sin(clock * 3) * h * 0.04;
+  const wave = songOver ? 0 : Math.sin(clock * 3) * h * 0.04;   // 結果の画面では止める
   ctx.fillStyle = col; ctx.strokeStyle = '#4a3a28'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x, y - h * 0.5); ctx.lineTo(x + h * 0.6, y - h * 0.34 + wave); ctx.lineTo(x, y - h * 0.16); ctx.closePath(); ctx.fill(); ctx.stroke();
 }
 function drawCastle(cx, by, w) {   // 宝の城：山のてっぺんの、小さなお城（ハムスターがいるスタート地点にはかからない高さに）
@@ -2429,7 +2474,7 @@ document.addEventListener('touchmove', e => e.preventDefault(), { passive: false
 document.addEventListener('gesturestart', e => e.preventDefault());
 document.addEventListener('dblclick', e => e.preventDefault());
 // スマホのブラウザは、画面に触れるまで音を出せない：最初に触れたときに音を出せるようにする
-for (const ev of ['touchend', 'pointerup', 'click']) addEventListener(ev, () => audioInit(), { passive: true });
+for (const ev of ['touchend', 'pointerup', 'click']) addEventListener(ev, () => { audioInit(); if (tilt.needTap) tiltEnable(true); }, { passive: true });   // iPhone：傾きの許可も、このタップで求める
 
 // ---------------- スマホ用のボタン・音量の目盛り ----------------
 const padL = document.getElementById('padL'), padR = document.getElementById('padR'), volEl = document.getElementById('vol');
@@ -2444,6 +2489,9 @@ function setTouchUI() {
   padR.appendChild(bHelp);
   eatMode = 'B';
   updatePad();
+  updateCtrlBtn();
+  try { const lk = screen.orientation && screen.orientation.lock && screen.orientation.lock('portrait'); if (lk && lk.catch) lk.catch(() => {}); } catch (e) { /* 向きを固定できない環境 */ }
+  tiltEnable(false);
 }
 document.getElementById('bWarp').onclick = () => { if (!songOver && !freshResume()) warpToStart(); };
 bReset.onclick = () => {                               // この曲を最初から：まちがえて押さないよう、もう一度押したらやり直す
@@ -2452,6 +2500,82 @@ bReset.onclick = () => {                               // この曲を最初か�
   updatePad();
 };
 document.getElementById('bVol').onclick = () => { if (!volEl.hidden && volHideAt > performance.now()) volEl.hidden = true; else showVol(null); };
+// ---------------- スマホの傾き操作 ----------------
+//   傾きの値（deviceorientation の beta・gamma）から、重力の向きを出して、画面の向きに合わせて「右へ何度・手前へ何度」傾いたかにする
+//   基準（まっすぐ）は、傾き操作を始めた瞬間の持ち方。指で画面に触れている間は、指が優先
+const TILT_KEY = 'hamster-ctrl', CTRL_MODES = ['finger', 'tilt', 'roll'];
+const tilt = {
+  mode: (() => { try { const v = localStorage.getItem(TILT_KEY); return CTRL_MODES.includes(v) ? v : C.TILT_START; } catch (e) { return C.TILT_START; } })(),
+  state: 'off',          // 'off' まだ ／ 'wait' 許可や値を待っている ／ 'on' 使える ／ 'ng' 使えない（指に戻した）
+  needTap: false, listening: false, gotAt: 0, timer: 0, raw: null, base: null, x: 0, y: 0,
+};
+const tiltOn = () => touchUI && tilt.mode !== 'finger' && tilt.state === 'on';
+function screenAngle() {   // 画面の向き（0：縦、90：左に倒した横、-90・270：右に倒した横、180：さかさま）
+  if (screen.orientation && typeof screen.orientation.angle === 'number') return screen.orientation.angle;
+  return typeof window.orientation === 'number' ? window.orientation : 0;
+}
+function onTilt(e) {
+  if (e.beta == null || e.gamma == null) return;                      // 値の入っていない知らせ（センサーのない機械など）
+  const b = e.beta * Math.PI / 180, g = e.gamma * Math.PI / 180, a = screenAngle() * Math.PI / 180;
+  const dx = Math.sin(g) * Math.cos(b), dy = -Math.sin(b), dz = -Math.cos(g) * Math.cos(b);   // 重力の向き（スマホの x：右、y：上、z：画面の手前）
+  const rx = dx * Math.cos(a) - dy * Math.sin(a), uy = dx * Math.sin(a) + dy * Math.cos(a);   // 画面の向きに合わせて（いまの画面の右・上）
+  tilt.raw = { roll: Math.asin(clamp(rx, -1, 1)) * 180 / Math.PI, pitch: Math.atan2(-uy, -dz) * 180 / Math.PI };   // 右へ何度、手前（画面の上を起こす向き）へ何度
+  tilt.gotAt = performance.now();
+  if (!tilt.base) { tilt.base = { ...tilt.raw }; tilt.x = tilt.y = 0; }
+  if (tilt.state === 'wait') tiltReady();
+}
+function tiltTick(dt) {   // 基準からの傾き（度）を、なめらかに
+  if (!tilt.raw || !tilt.base) return;
+  const wrap = d => ((d + 540) % 360) - 180, k = 1 - Math.exp(-dt / C.TILT_SMOOTH);
+  tilt.x += (wrap(tilt.raw.roll - tilt.base.roll) - tilt.x) * k;
+  tilt.y += (wrap(tilt.raw.pitch - tilt.base.pitch) - tilt.y) * k;
+}
+function tiltSteer() {   // 傾けた向きと強さ：TILT_DEAD 度までは 0、TILT_FULL 度でいちばん速く
+  const m = Math.hypot(tilt.x, tilt.y);
+  if (!tilt.base || m <= C.TILT_DEAD) return [0, 0, 0];
+  return [tilt.x / m, tilt.y / m, clamp((m - C.TILT_DEAD) / (C.TILT_FULL - C.TILT_DEAD), 0, 1)];
+}
+function tiltRebase() { tilt.base = tilt.raw && performance.now() - tilt.gotAt < 500 ? { ...tilt.raw } : null; tilt.x = tilt.y = 0; }   // いまの持ち方を「まっすぐ」に（値がまだなら、次に届いた値で）
+function tiltEnable(gesture) {   // 傾きを使えるようにする（iPhone は、タップの中で許可を求める）
+  if (!touchUI || tilt.mode === 'finger' || tilt.state === 'on' || tilt.state === 'wait') return;
+  if (typeof DeviceOrientationEvent === 'undefined') return tiltFail();
+  if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+    if (!gesture) { tilt.needTap = true; return; }                       // iPhone：最初のタップを待つ
+    tilt.needTap = false; tilt.state = 'wait';
+    let p; try { p = DeviceOrientationEvent.requestPermission(); } catch (e) { return tiltFail(); }
+    Promise.resolve(p).then(r => (r === 'granted' ? tiltListen() : tiltFail()), () => tiltFail());
+  } else tiltListen();
+}
+function tiltListen() {
+  tilt.state = 'wait';
+  if (!tilt.listening) { addEventListener('deviceorientation', onTilt); tilt.listening = true; }
+  clearTimeout(tilt.timer);
+  tilt.timer = setTimeout(() => { if (tilt.state === 'wait') tiltFail(); }, C.TILT_WAIT * 1000);   // 値が届かない：使えない
+  if (tilt.raw && performance.now() - tilt.gotAt < 500) tiltReady();
+}
+function tiltReady() { tilt.state = 'on'; clearTimeout(tilt.timer); updateCtrlBtn(); }
+function tiltFail() { tilt.state = 'ng'; tilt.needTap = false; clearTimeout(tilt.timer); tilt.mode = 'finger'; updateCtrlBtn(); }   // 使えない：指に戻す（保存した選び方は、そのまま）
+for (const t of [window, screen.orientation].filter(Boolean)) t.addEventListener(t === window ? 'orientationchange' : 'change', () => { tilt.base = null; tilt.x = tilt.y = 0; });   // 画面の向きが変わった：次に届いた値を基準に
+// 操作の切り替えボタン：文字なしで、絵（指／傾いたスマホ／転がる玉）。傾きが使えないときは、指の絵の横に、斜線の入ったスマホの絵
+const ICON = {
+  finger: '<svg viewBox="0 0 24 24" width="24" height="24"><path d="M9.6 12.2V4.6a1.6 1.6 0 0 1 3.2 0v6.2l4.5 1c1.1.25 1.8 1.3 1.6 2.4l-.9 4.6A2.6 2.6 0 0 1 15.4 21h-4a2.6 2.6 0 0 1-2.1-1.1L6 15.4a1.5 1.5 0 0 1 2.2-2z" fill="currentColor"/></svg>',
+  tilt: '<svg viewBox="0 0 24 24" width="24" height="24"><g transform="rotate(-24 12 12)"><rect x="7.6" y="3" width="8.8" height="18" rx="2.2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="18" r="1.1" fill="currentColor"/></g><path d="M2.6 17.5a9 9 0 0 1 1.2-7.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M2.4 9.6l1.6.3.2 1.7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  roll: '<svg viewBox="0 0 24 24" width="24" height="24"><circle cx="14.5" cy="12" r="6.5" fill="currentColor"/><path d="M14.5 5.5a6.5 6.5 0 0 1 6.2 4.6" fill="none" stroke="#3a3a3a" stroke-width="1.6"/><path d="M1.8 9h4.2M1.2 12.4h4.4M1.8 15.8h4.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M3 20.6h19" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  ng: '<svg viewBox="0 0 24 24" width="18" height="18"><g transform="rotate(-24 12 12)" opacity="0.75"><rect x="7.6" y="3" width="8.8" height="18" rx="2.2" fill="none" stroke="currentColor" stroke-width="2"/></g><path d="M3 21L21 3" stroke="#ff6a5a" stroke-width="2.6" stroke-linecap="round"/></svg>',
+};
+const bCtrl = $id('bCtrl');
+function updateCtrlBtn() {
+  if (!bCtrl) return;
+  const html = ICON[tilt.mode] + (tilt.state === 'ng' ? ICON.ng : '');
+  if (bCtrl.dataset.k !== html) { bCtrl.dataset.k = html; bCtrl.innerHTML = html; }
+}
+bCtrl.onclick = () => {   // 指 → 傾き・進む → 傾き・転がる → 指 …（選んだものは保存して、次に開いたときもそのまま）
+  if (freshResume()) return;
+  tilt.mode = CTRL_MODES[(CTRL_MODES.indexOf(tilt.mode) + 1) % CTRL_MODES.length];
+  try { localStorage.setItem(TILT_KEY, tilt.mode); } catch (e) { /* 保存できない開き方 */ }
+  if (tilt.mode !== 'finger') { if (tilt.state === 'ng') tilt.state = 'off'; tiltRebase(); tiltEnable(true); }   // 切り替えた瞬間の持ち方を「まっすぐ」に
+  updateCtrlBtn();
+};
 function updatePad() {
   if (!touchUI) return;
   const arm = resetArm > clock, rt = arm ? 'もう一度で最初から' : '曲を最初から';
