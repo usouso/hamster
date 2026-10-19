@@ -117,7 +117,7 @@ const CONFIG = {
   FOODS: [
     [1.0, 1.0, 10, 150],                              // スタート地点のまわりの種：すぐ食べられる
     [2.0, 3.0, 4, 240, 'shell'],                      // スタート近くの殻つきのごちそう：大きさはすぐ足りるが、歯が足りない
-    [1.0, 1.0, 28],                                   // 種：最初から食べられる
+    [1.0, 1.0, 18],                                   // 種：最初から食べられる（ばらばらの物は少なめに。前は28個）
     // やわらかいもの（体が伸びる）＝果物
     //   序盤（大きさ3.4まで）は硬さ1.2以下：最初の歯のままで食べられる
     //   中盤からは少しずつ硬くして、歯も育てないと先へ進めないようにしてある
@@ -140,6 +140,15 @@ const CONFIG = {
   ROW_BEND: 0.9,            // 列の曲がり具合の上限（列の端から端までで向きが変わる角度、ラジアン）
   GEM_CLEAR: 1,             // 列・かたまりのまわりに空ける幅 ＝ その宝石が食べられる頃のハムスターの直径 × これ ＋ PASS_MARGIN（壁と、その頃まだ取れない物から離す）
   GEM_CLUSTER_GAP: 3,       // かたまりの中の宝石どうしのすき間（px）
+  // 果物の流れ：小さめの果物を、ゆるい曲線（弧・S字・食べられない物のまわりを回る形）に並べて置く（ソニックのリングやマリオのコインのように）
+  //   流れの始まりは、ほかの流れの終わり・宝石の列・かたまり・待っている仲間の近くにつないで、1つ食べ切ったら、次の流れが近くに見えるように
+  //   流れの果物の大きさ＝その時の体の大きさ × FLOW_SIZE（ほとんど、その時に食べられる）。食べ切ったら、別の所に流れの形で生え直す（RESPAWN_SEC）
+  //   表（FOODS）の果物のうち FLOW_FROM より小さい物は、流れに置きかえる。それより大きい物は、流れから少しそれた所に、寄り道のご褒美として置く
+  FLOWS: 14,                // 広場の流れの数
+  FLOW_N: [6, 14],          // 1つの流れの果物の数
+  FLOW_GAP: [55, 70],       // 果物どうしの間隔（px）
+  FLOW_SIZE: [0.35, 0.65],
+  FLOW_FROM: 3.4,
   GEM_NEAR_SOFT: 110,       // やわらかい物は、同じくらいの段の宝石の列・かたまりのそば（空ける幅のすぐ外、この距離(px)以内）に置く。0 なら全体にばらまく
   RESPAWN_SEC: 6,           // 食べたものが別の場所に生えてくるまで（秒）
   FOOD_GAP: 26,             // 食べ物どうしの最低すき間（px）。最初のハムスターが通れる幅にしておく
@@ -329,10 +338,9 @@ const CONFIG = {
   GROOVE_PER_FRUIT: 0.18,   // 果物1つで増える、ベースの層の厚み（0〜1。大きい果物ほど少し多い）
   GROOVE_HOLD: 1.5,         // 最後に果物を食べてから、この秒数はそのまま
   GROOVE_FADE: 0.12,        // そのあと1秒にこれだけ薄くなり、0 で元に戻る
-  // ばらばらの物を続けて食べた音：16分音符の刻みに並べて、一つずつ和音の音を上がる
-  EAT_COMBO_GAP: 0.6,       // この秒数以内に続けて食べると、食べる音が1段ずつ上がる
-  EAT_QUEUE_MAX: 8,         // 並べるのはこの数まで（超えたら古いものから省く）
-  SFX_QUEUE_GAP: 0.07,      // 効果音モードで並べる間隔（秒）。音楽モードは16分音符ずつ
+  // ばらばらの物・果物の流れを食べた音：食べた瞬間に1音目。続けて食べるほど、和音の音を1段ずつ上がる（2音目の合いの手だけ、刻みにそろえる）
+  EAT_COMBO_GAP: 0.5,       // この秒数以内に続けて食べると、食べる音が1段ずつ上がる
+  SFX_QUEUE_GAP: 0.07,      // 効果音モードで、合いの手を鳴らすまでの秒数（音楽モードは次の16分音符）
   ROW_SFX_GAP: 0.13,        // 効果音モードで、列の旋律の音どうしの間隔（秒）。音楽モードは8分音符ずつ
   BLOB_GATHER: 0.35,        // かたまりの音を1つの和音にまとめる：最初の1つを食べたとき、同じかたまりの残りで、この秒数以内に食べそうな物（進む先にある物）は、
                             //   食べ終わるのを待ってから、次の8分音符で一緒に鳴らす（効果音モードは食べ終わったらすぐ）
@@ -846,12 +854,16 @@ function reset() {
   hideResult();
   clusterSeq = 0; placeMiss = 0;
   // 置く順：宝石の列・かたまり（開けた場所が要るので先に。硬い段から）→ ほかの物（大きいものから）
+  //   宝石のあとに、果物の流れ（小さな果物は流れに置きかえる）。大きな果物は、流れから少しそれた所に
   const list = [], gems = [];
+  flows = {}; flowSeq = 0;
   for (const [s, h, n, near = 0, look] of C.FOODS) {
     if (lookOf(s, h, false, look) === 'gem' && !near) for (const g of gemGroups(n)) gems.push({ s, h, ...g });
+    else if (lookOf(s, h, false, look) === 'soft' && s < C.FLOW_FROM && !near) continue;
     else for (let i = 0; i < n; i++) list.push({ s, h, near, look });
   }
   gems.sort((a, b) => b.h - a.h).forEach(g => spawnGroup(g.s, g.h, g.kind, g.n, true));
+  makeFlows(C.FLOWS);
   list.sort((a, b) => b.s - a.s).forEach(f => spawnFood(f.s, f.h, false, true, f.near, f.look));
 }
 
@@ -947,7 +959,7 @@ function spawnGroup(s, h, kind, n, instant) {
   if (!pts) { if (!instant) return null; pts = best || last; placeMiss++; }   // 生え直すときは、置ける場所ができるまで待つ（重ねない）
   if (!pts) return null;                                                     // 置ける形が1つもなかった（ふつうは起きない）
   groups[id] = { kind, n, s, h, clear, eaten: 0, sx: 0, sy: 0, mel: -1 };
-  for (const [ri, p] of pts.entries()) {   // ri：列の何番目か（食べ始めた端で、フレーズの向きを決める）
+  for (const [ri, p] of pts.entries()) {   // ri：列の何番目か
     const f = { s, h, w, x: p.x, y: p.y, boulder: false, look: 'gem', seed: Math.random(), born: instant ? 1 : 0, flash: 0, shake: 0, msgCd: 0, hitCd: 0, edible: false, revive: 0, reviveIn: 0, cluster: id, ri };
     f.edible = canEat(f); f.dim = f.edible ? 0 : 1;
     foods.push(f);
@@ -958,7 +970,7 @@ function spawnGroup(s, h, kind, n, instant) {
 // 食べた物を別の場所に生やす。宝石の列・かたまりは、最後の一つまで食べたら、同じ形のものを丸ごと別の場所に
 //   広場が混んでいて置ける場所がないときは、少し待ってからもう一度探す（物どうしは重ねない）
 function respawnFood(r) {
-  const ok = r.group ? spawnGroup(r.s, r.h, r.group, r.n, false) : spawnFood(r.s, r.h, false, false, 0, r.look);
+  const ok = r.flow ? makeFlow(null) : r.group ? spawnGroup(r.s, r.h, r.group, r.n, false) : spawnFood(r.s, r.h, false, false, 0, r.look);
   if (!ok) { r.t = 1.5; respawns.push(r); }
 }
 
@@ -970,16 +982,89 @@ function lookOf(s, h, boulder, look) {
   return r >= 0.58 ? 'gem' : r <= 0.42 ? 'soft' : 'nut';
 }
 
+// ---------------- 果物の流れ ----------------
+let flows = {}, flowSeq = 0;   // 流れ：番号 → { n, ex, ey, ea（終わりの所と向き）, alive, linked（その終わりから、次の流れが始まったか）, shape }
+function flowAnchors() {        // 新しい流れの始まりの候補：まだ次につながっていない流れの終わり、宝石の列・かたまり、待っている仲間
+  const out = [];
+  for (const fl of Object.values(flows)) if (fl.alive && !fl.linked) out.push({ x: fl.ex, y: fl.ey, a: fl.ea, src: fl });
+  const gs = {};
+  for (const f of foods) if (f.cluster) { const g = gs[f.cluster] || (gs[f.cluster] = { x: 0, y: 0, n: 0, r: 0 }); g.x += f.x; g.y += f.y; g.n++; g.r = Math.max(g.r, f.w); }
+  for (const id in gs) { const g = gs[id], k = groups[id]?.kind; out.push({ x: g.x / g.n, y: g.y / g.n, r: (k === 'blob' ? g.r * 1.6 : g.r * 2) + (groups[id]?.clear || 0) * (k === 'blob' ? 0.5 : 1), kind: k }); }
+  if (pals.cur && pals.cur.state === 'wait') out.push({ x: pals.cur.x, y: pals.cur.y, r: palR() + 20 });
+  return out;
+}
+function makeFlow(near, instant = false) {   // near：{x, y, a, r}（そのそばから始める）。なければ、候補から選ぶ
+  const passR = ham.r + 4, rnd = (a, b) => a + Math.random() * (b - a);
+  const s = clamp(ham.body * rnd(...C.FLOW_SIZE), 0.5, 9), h = Math.min(s * 0.38, ham.teeth * 0.7), w = px(s);   // その時のハムスターが食べられる大きさ
+  const okAt = (x, y) => x > w / 2 + 10 && y > w / 2 + 10 && x < C.FIELD_W - w / 2 - 10 && y < C.FIELD_H - w / 2 - 10 && !onPile(x, y, w) && !palNear(x, y, w) &&
+    foods.every(o => { const gp = rectGap(o, { x, y, w }).gap; return gp >= C.ITEM_SEP + 2 && (o.edible || gp >= passR); });   // 食べられない物からは、ハムスターが通れるだけ離す
+  for (let attempt = 0; attempt < 40; attempt++) {
+    let an = near;
+    if (!an || attempt > 8) { const cand = flowAnchors(); an = cand.length && Math.random() < 0.9 ? cand[(Math.random() * cand.length) | 0] : { x: rnd(100, C.FIELD_W - 100), y: rnd(100, C.FIELD_H - 100), r: 0 }; }
+    const n = Math.round(rnd(C.FLOW_N[0], C.FLOW_N[1] + 0.49)), gap = rnd(...C.FLOW_GAP);
+    let a = an.a !== undefined ? an.a + rnd(-0.7, 0.7) : Math.random() * TAU;
+    const d0 = (an.r || 0) + gap * rnd(1.0, 1.6);
+    let x = an.x + Math.cos(a) * d0, y = an.y + Math.sin(a) * d0;
+    let shape = ['arc', 'arc', 's', 's', 'around'][(Math.random() * 5) | 0], pts = [];
+    if (shape === 'around') {   // 物のまわりを回る：近くの食べられない物か、始まりにした宝石のかたまりのまわりを
+      const b = foods.filter(o => !o.edible && !o.cluster && Math.hypot(o.x - x, o.y - y) < 260).sort((p, q) => Math.hypot(p.x - x, p.y - y) - Math.hypot(q.x - x, q.y - y))[0];
+      const ctr = b ? { x: b.x, y: b.y, R: b.w / 2 * Math.SQRT2 + passR + w / 2 + 12 } : an.kind === 'blob' ? { x: an.x, y: an.y, R: an.r + w / 2 + 14 } : null;
+      if (ctr) {
+        const R = ctr.R, sg = Math.random() < 0.5 ? -1 : 1, phi0 = Math.atan2(y - ctr.y, x - ctr.x);
+        for (let k = 0; k < n; k++) { const ph = phi0 + sg * k * gap / R, px2 = ctr.x + Math.cos(ph) * R, py2 = ctr.y + Math.sin(ph) * R; if (!okAt(px2, py2)) break; pts.push([px2, py2]); }
+        if (pts.length >= 3) { const [p1, p2] = pts.slice(-2); a = Math.atan2(p2[1] - p1[1], p2[0] - p1[0]); x = p2[0] + Math.cos(a) * gap; y = p2[1] + Math.sin(a) * gap; }   // 回りきれなければ、そこから弧で続ける
+        else { pts = []; shape = 'arc'; }
+      } else shape = 'arc';
+    }
+    if (pts.length < n) {   // 弧（同じ向きに曲がる）・S字（途中で曲がる向きが変わる）。物のまわりを回ったあとは、弧で続ける
+      const turn = (Math.random() < 0.5 ? -1 : 1) * rnd(0.9, 2.4) / Math.max(1, n - 1);   // 全体で 50〜140°くらい
+      for (let k = pts.length; k < n; k++) {
+        if (!okAt(x, y)) {      // 置けない：向きを少し変えて、よける
+          const prev = pts[pts.length - 1];
+          let fixed = false;
+          if (prev) for (const da of [0.45, -0.45, 0.9, -0.9]) { const a2 = a + da, x2 = prev[0] + Math.cos(a2) * gap, y2 = prev[1] + Math.sin(a2) * gap; if (okAt(x2, y2)) { a = a2; x = x2; y = y2; fixed = true; break; } }
+          if (!fixed) break;
+        }
+        pts.push([x, y]);
+        a += shape === 's' && k >= (n - 1) / 2 ? -turn : turn;
+        x += Math.cos(a) * gap; y += Math.sin(a) * gap;
+      }
+    }
+    if (pts.length < C.FLOW_N[0]) continue;
+    const id = ++flowSeq, [ex, ey] = pts[pts.length - 1];
+    flows[id] = { id, n: pts.length, ex, ey, ea: a, alive: true, linked: false, shape };
+    pts.forEach(([fx, fy], k) => {
+      const f = { s, h, w, x: fx, y: fy, boulder: false, look: 'soft', seed: Math.random(), born: instant ? 1 : 0, wait: instant ? 0 : k * 0.035, flash: 0, shake: 0, msgCd: 0, hitCd: 0, edible: true, revive: 0, reviveIn: 0, cluster: 0, dim: 0, flow: id };
+      f.edible = canEat(f); f.dim = f.edible ? 0 : 1;
+      foods.push(f);
+    });
+    if (an.src) an.src.linked = true;
+    return id;
+  }
+  return 0;
+}
+function makeFlows(n) {   // 曲の始まり：スタート地点（巣の山のすぐ外）から始めて、流れの終わりから次の流れへ、つないでいく
+  const a = Math.random() * TAU, d = pileClear() + ham.r + 30;
+  makeFlow({ x: ham.x + Math.cos(a) * d * 0.4, y: ham.y + Math.sin(a) * d * 0.4, a, r: d * 0.6 }, true);
+  for (let i = 1, tries = 0; i < n && tries < n * 3; tries++) if (makeFlow(null, true)) i++;
+}
+
 // near > 0 なら、ハムスターからその距離（px）以内に置く。やわらかい物は、同じくらいの段の宝石の列・かたまりのそばに置く
 function spawnFood(s, h, boulder = false, instant = false, near = 0, look = undefined) {
   const w = px(s), kind = lookOf(s, h, boulder, look);
   const blocker = !(s <= ham.body + EPS && h <= ham.teeth + EPS), need = passWidth();
   const mates = kind === 'soft' && C.GEM_NEAR_SOFT > 0 && !near ? foods.filter(o => o.cluster && s >= o.h * 0.6 && s <= o.h * 1.6) : [];
+  const fmates = kind === 'soft' && !near && s >= C.FLOW_FROM && !feast() ? foods.filter(o => o.flow) : [];   // 大きな果物：流れの果物のそば（寄り道のご褒美）
   let x, y, ok = false, best = null, bestGap = -Infinity;
   for (let tries = 0; tries < 450 && !ok; tries++) {
     const loose = tries >= 300, scan = loose && instant;   // 見つからなければ：ほかの物と重ならない（ITEM_SEP あける）ことだけ守る
     const away = loose ? ham.r + w / 2 + 30 : keepAway(w);
-    if (mates.length && tries < 200) {
+    if (fmates.length && tries < 150) {   // 流れから少しそれた所（流れの果物から 22〜70px）
+      const m = fmates[(Math.random() * fmates.length) | 0], a = Math.random() * TAU, d = (m.w + w) / 2 + 22 + Math.random() * 48;
+      x = clamp(m.x + Math.cos(a) * d, w / 2 + 8, C.FIELD_W - w / 2 - 8);
+      y = clamp(m.y + Math.sin(a) * d, w / 2 + 8, C.FIELD_H - w / 2 - 8);
+      if (Math.hypot(x - ham.x, y - ham.y) < away) continue;
+    } else if (mates.length && tries < 200) {
       const m = mates[(Math.random() * mates.length) | 0], a = Math.random() * TAU;
       const d = (m.w + w) / 2 + (groups[m.cluster]?.clear || 0) + C.FOOD_GAP + Math.random() * C.GEM_NEAR_SOFT;
       x = clamp(m.x + Math.cos(a) * d, w / 2 + 8, C.FIELD_W - w / 2 - 8);
@@ -1205,7 +1290,7 @@ function eat(f) {
   if (fi >= 0) foods.splice(fi, 1);
   eatenCount++;
   if (feast()) { song.chorusEaten++; driveUp(); }   // 演奏：食べると勢いが上がる
-  if (!f.boulder && !f.cluster && !f.special && !f.path) respawns.push({ s: f.s, h: f.h, look: f.look === 'shell' ? 'shell' : undefined, t: C.RESPAWN_SEC * (0.7 + Math.random() * 0.6) });
+  if (!f.boulder && !f.cluster && !f.special && !f.path && !f.flow) respawns.push({ s: f.s, h: f.h, look: f.look === 'shell' ? 'shell' : undefined, t: C.RESPAWN_SEC * (0.7 + Math.random() * 0.6) });
   const left = ham.pouch.filter(it => it.cheek < 0).reduce((a, it) => a + it.s, 0);
   const right = ham.pouch.filter(it => it.cheek > 0).reduce((a, it) => a + it.s, 0);
   const cheek = left <= right ? -1 : 1;
@@ -1223,6 +1308,10 @@ function eat(f) {
   if (f.cluster) groupEat(f, ratio);
   else if (f.special) specialEat(f);
   else sfxEat(ratio, kindOf(f.s, f.h), f.x, f.y);
+  if (f.flow && flows[f.flow] && !foods.some(o => o.flow === f.flow)) {   // 流れを全部食べ切った：「ドン」と締めて、別の所に流れの形で生え直す
+    flowDone(f.x, f.y); delete flows[f.flow];
+    respawns.push({ flow: true, t: C.RESPAWN_SEC * (0.7 + Math.random() * 0.6) });
+  }
 }
 // 宝石の列・かたまりの一つを食べた。最後の一つなら、締めの音（列）／完成の和音ときらっ（かたまり）を鳴らして、丸ごと別の場所に生やす
 function groupEat(f, ratio) {
@@ -1854,7 +1943,7 @@ function render() {
   // 下の段（バンドの顔ぶれと、いまの目標の一言）：スマホでは、隅のボタンの間に収まればそこへ、収まらなければボタンの上へ
   const padW = touchUI ? (padL.offsetWidth || 0) + (padR.offsetWidth || 0) + 32 : 0, between = touchUI && W - padW >= 300;
   const BAND = 22, TOP = BAND + (compact ? 46 : 64), PAD = compact ? 6 : 10;   // いちばん上に、曲の進み具合の細い帯
-  const BOTTOM = !touchUI ? 46 : between ? 52 : 84;
+  const BOTTOM = (!touchUI ? 46 : between ? 52 : 84) + (touchUI && C.PALS && C.BAND_PANEL ? 36 : 0);   // スマホで仲間ON：顔ぶれの段を1つ足す
   // カメラ：体が小さいうちはハムスターの周りに寄り、育つほど引いて、最後は広場全体が見える
   //   画面の縦横比が広場と大きくちがうとき（スマホなど）は、広場全体を小さく収めず、少し寄せて見やすくする
   const ax = PAD, ay = TOP, aw = Math.max(1, W - PAD * 2), ah = Math.max(1, H - TOP - BOTTOM - PAD);
@@ -2008,7 +2097,7 @@ function drawBottom(x0, x1, y) {
   const goal = goalText(), fs = touchUI ? 15 : 18, icons = goal === '育てよう', isz = fs * 1.05;
   ctx.font = `900 ${fs}px ${FONT}`;
   const tw = goal ? ctx.measureText(goal).width : 0, gw = tw + (icons ? isz * 2 + 10 : 0), cx = (x0 + x1) / 2;
-  if (C.BAND_PANEL) drawBand(x0, x1, y, cx - Math.max(gw, 70) / 2 - 12, cx + Math.max(gw, 70) / 2 + 12);
+  if (C.BAND_PANEL) { if (touchUI && C.PALS) drawPalSlots(cx, y - 36); else drawBand(x0, x1, y, cx - Math.max(gw, 70) / 2 - 12, cx + Math.max(gw, 70) / 2 + 12); }
   if (!goal) return;
   let x = cx - gw / 2;
   if (icons) { paintFood(NEED_FRUIT, x + isz / 2, y, isz, 0); paintFood(NEED_GEM, x + isz * 1.5 + 3, y, isz * 0.9, 0); x += isz * 2 + 10; }   // 果物と宝石を食べて育てよう
@@ -2064,6 +2153,19 @@ function drawBand(x0, x1, y, gl, gr) {
   };
   if (gl - x0 >= 40) side(x0, gl, 'B');
   if (x1 - gr >= 40) side(gr, x1, 'T');
+}
+// スマホで仲間ON のときの顔ぶれ：5人ぶんのマスを1列に。顔（まだ会っていない仲間は影）と、右に体側（オレンジ）・歯側（青）の楽器が鳴っているかの印
+function drawPalSlots(cx, y) {
+  const beat = Math.pow(1 - beatPhase(), 2), w = 44, h = 30, gap = 6, x0 = cx - (w * 5 + gap * 4) / 2;
+  for (let i = 0; i < 5; i++) {
+    const met = palLv(i, 1e9) > 0, lb = bandLv('B', i), lt = bandLv('T', i), lv = Math.max(lb, lt), fx = Math.max(band.fxB[i], band.fxT[i]);
+    const x = x0 + i * (w + gap), by = y - h / 2 - (lv > 0 && !songOver ? 2.5 * beat * lv : 0);
+    if (fx > 0) { const a = fx / 1.2, g = 6 * a; ctx.fillStyle = `rgba(255,225,110,${0.55 * a})`; ctx.beginPath(); ctx.roundRect(x - g, by - g, w + g * 2, h + g * 2, 8 + g); ctx.fill(); }
+    ctx.fillStyle = met ? 'rgba(70,60,45,0.92)' : 'rgba(40,40,40,0.85)'; ctx.strokeStyle = met ? 'rgba(255,225,150,0.95)' : 'rgba(150,150,150,0.5)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.roundRect(x, by, w, h, 7); ctx.fill(); ctx.stroke();
+    drawPal(palKind(i), x + 15, by + h / 2 + 1, 11, { sil: !met });
+    for (const [k, l, col] of [[0, lb, '255,159,58'], [1, lt, '90,184,255']]) { ctx.fillStyle = l > 0 ? `rgba(${col},${0.35 + 0.65 * l})` : 'rgba(90,90,90,0.6)'; ctx.beginPath(); ctx.roundRect(x + 30 + k * 7, by + 6, 5, h - 12, 2); ctx.fill(); }
+  }
 }
 // 言葉：画面の上の方に大きく太く。ぽんと出て、しばらく見せて、ゆっくり消える
 function drawMsg(ax, ay, aw, ah) {
@@ -2449,7 +2551,7 @@ function drawPals() {   // 待っている仲間（その場で弾んで、手�
     else if (p.state === 'party') { hop = songOver ? 0 : Math.abs(Math.sin(clock * 7 + p.i * 1.3)) * R * 0.7; happy = true; }   // 結果の画面では止まる
     ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.beginPath(); ctx.ellipse(p.x, p.y + R * 0.85, R * 0.75 * sc, R * 0.28 * sc, 0, 0, TAU); ctx.fill();   // 影
     drawPal(p.kind, p.x, p.y - hop, R * sc, { wave, happy });
-    if (p.state === 'wait' || p.state === 'join') drawPalInsts(p, p.x, p.y - hop - R * 1.6 * sc, Math.max(R * 0.5, 9 / VS) * sc);   // 持ってくる楽器
+    if (p.state === 'wait' || p.state === 'join') { const s = Math.max(R * 1.0, 18 / VS) * sc; drawPalInsts(p, p.x, p.y - hop - R * 0.95 * sc - s * 1.15, s); }   // 持ってくる楽器
   }
 }
 // 次の仲間が画面の外にいるとき：画面の端に、その向きの矢印と仲間の顔（ゆっくり小さく脈打つ）。画面の中に入ったら消す
@@ -2642,7 +2744,7 @@ function helpHTML() {
     C.PALS ? '広場で待っているバンドの仲間に会いに行くと、その仲間の楽器が加わって、後ろをついて歩く（果物の道をたどると会える。画面の外にいるときは、端に矢印）' : '体と歯が育つと、下のバンドの仲間が1人ずつ加わる（オレンジ＝果物で育つ楽器、青＝宝石で育つ楽器）',
     '「ため」のあとのサビは食べ放題。頬袋の中の数が、上の★の目盛りを満たしていく（' + C.STARS.map((t, i) => `★${i + 1}：${t}個`).join('、') + '）',
     '曲の最後に、頬袋の中身を巣へ噴き出して、宝の山になる。山は大きくなると姿が変わる',
-    '宝石の列は、列ごとに違うフレーズになる（仲間がいれば、その仲間の楽器で）。食べ始めた端で、フレーズの向きが変わる。かたまりは和音。テーマのメロディは、曲の締めでバンドが演奏する',
+    '宝石の列は、列ごとに違うフレーズになる（仲間がいれば、その仲間の楽器で）。かたまりは和音。果物は流れに並んでいて、続けて食べると音が上がり、食べ切ると「ドン」。テーマのメロディは、曲の締めでバンドが演奏する',
     'サビでは、食べている間だけバンドが厚くなる。空から降る特別な食べ物は、サビに入ったときの体と歯の育ち方で変わる（体が大きい＝大きな実、歯が硬い＝結晶、両方＝両方と虹の実）'];
   const keys = touchUI ? ['指を置いた方へ走る', '「スタートへ」：スタート地点に戻る', '「曲を最初から」：2回押すと、この曲を最初から', '「音量」：音量と、テーマの候補の切り替え'] :
     [`${k('W A S D')} ${k('矢印')}：移動　マウス：押している間、その方へ走る`, `${k('R')}：スタート地点へ（長押しで、この曲を最初から）`,
@@ -2953,7 +3055,7 @@ const midiHz = m => 440 * Math.pow(2, (m - 69) / 12), hz = midiHz;
 const hzMidi = f => 69 + 12 * Math.log2(f / 440);
 const wobble = () => 1 + (Math.random() - 0.5) * 0.01;   // 同じ音でも耳が疲れないよう、高さをほんの少し（±0.5%）だけ揺らす
 const wob = () => (Math.random() - 0.5) * 0.17;           //   同じことを半音の単位で
-const sfx = { step: 0, lastNoteT: -9, qNext: 0, lastBump: -9, last: { m: -1, g: -1 } };
+const sfx = { step: 0, lastNoteT: -9, lastBump: -9 };
 // 食べ物がどちらを伸ばすか：'soft'＝大きさ、'hard'＝硬さ、'both'＝両方
 const kindOf = (s, h) => { const r = h / (s + h); return r >= 0.58 ? 'hard' : r <= 0.42 ? 'soft' : 'both'; };
 
@@ -3338,63 +3440,55 @@ function hits(list, base, t, mul = 1, ch = CH.tonic, noteLen = 0, music = false)
 function tick() { noise(AC.currentTime, 0.012, 0.016, 'bandpass', 3500); }   // 食べた瞬間の「ぷち」：音の高さのない、ごく小さく短い音（リズムを乱さない）
 function sfxEat(ratio, kind, x, y) {  // ratio = 食べ物の大きさ ÷ 体の大きさ。x, y：食べた場所（音符の光を出す所）
   if (!AC) return;
-  if (soundMode === 'music') { tick(); if (!mus.timer) musicStart(); }   // 音楽モード：すぐ鳴る小さな「ぷち」
+  if (soundMode === 'music' && !mus.timer) musicStart();
   if (kind !== 'hard') { mus.groove = Math.min(1, mus.groove + C.GROOVE_PER_FRUIT * (0.7 + 0.6 * ratio)); mus.grooveAt = clock; }   // 果物：リズムとベースの層が厚くなる
-  queueEat({ kind, ratio, x, y });
-  pumpQueue(AC.currentTime);
+  eatNow({ kind, ratio, x, y });
 }
-// ばらばらの物を食べた音の行列：短い間にたくさん食べたら、16分音符の刻み（効果音モードは SFX_QUEUE_GAP 秒）で後ろに並べて、一つずつ鳴らす
-//   果物は2〜3音の短いフレーズ、殻つきなどの硬い物はきらっと一音。続けて食べるほど、和音の音を1段ずつ上がる。EAT_QUEUE_MAX を超えたら古いものから省く
-const eatQ = [];
-function queueEat(item) {
-  eatQ.push(item);
-  while (eatQ.length > C.EAT_QUEUE_MAX) eatQ.shift();
-}
-function pumpQueue(now) {
-  if (!AC || !eatQ.length) return;
-  const music = soundMode === 'music' && !!mus.timer;
-  while (eatQ.length) {
-    let t = Math.max(sfx.qNext, now + 0.015);
-    if (music) t = nextGrid(t, 1);                     // 16分音符の刻みにそろえる
-    if (t > now + 0.12) break;                         // まだ先：次の回にまわす
-    const n = playEatNote(eatQ.shift(), t, music);     // フレーズの長さだけ、次をあける
-    sfx.qNext = music ? T16(idx16(t) + n) : t + n * C.SFX_QUEUE_GAP;
-  }
-}
-// pool の中で、前の音（last）のすぐ上の音。前の音がない・いちばん上まで行ったら、いちばん下から（跳びすぎず、和音の音を順に上がる）
-const nextUp = (pool, last) => (last < 0 ? undefined : pool.find(m => m > last)) ?? pool[0];
-// 果物のフレーズ：[16分音符いくつ目, 和音の音の段（0＝その果物の音）]。何個目に食べたかで形を変えて、リズムに変化をつける
-const FRUIT_PHRASES = [[[0, 0], [1, 2], [2, 1]], [[0, 1], [2, 0], [3, 2]], [[0, 0], [1, 1]], [[0, 2], [2, 0], [3, 1]]];
-// lo からの音域で、base 以上のいちばん近い和音の音から st 段上の音（音楽モードは t の時の和音、効果音モードはその曲の音階）
-function stepNote(music, t, lo, base, st) {
-  const pool = music ? chordNotes(chordAt(t), lo, lo + 30) : scaleNotes(lo, lo + 30);
-  let i = pool.findIndex(m => m >= base);
-  if (i < 0) i = pool.length - 1;
-  return pool[clamp(i + st, 0, pool.length - 1)];
-}
-function playEatNote(q, t, music) {   // 並んだ音を1つ鳴らす。使った長さ（16分音符いくつ分）を返す
-  if (t - sfx.lastNoteT > C.EAT_COMBO_GAP) { sfx.step = 0; sfx.last = { m: -1, g: -1 }; } else sfx.step++;
-  sfx.lastNoteT = t;
-  const vol = 0.055 + 0.03 * q.ratio, ch = music ? chordAt(t) : null;
-  const pool = lo => music ? chordNotes(ch, lo, lo + 26) : scaleNotes(lo, lo + 26);   // 音楽モード：その時の和音の音 ／ 効果音モード：その曲の音階
-  const rising = (list, key) => (sfx.last[key] = nextUp(list, sfx.last[key]));        // 大きさで決まる音域から、前の音のすぐ上へ
-  const at = n => music ? T16(idx16(t) + n) : t + n * C.SFX_QUEUE_GAP;
-  if (q.kind === 'hard') {    // 硬い物（殻つきなど）：きらっと一音
-    const m = rising(pool(q.ratio > 0.66 ? 67 : q.ratio > 0.33 ? 74 : 79), 'g');
+// ばらばらの物・果物の流れを食べた音：食べた瞬間に1音目（拍は待たない）。続けて食べる（EAT_COMBO_GAP 秒以内）ほど、和音の音を1段ずつはっきり上がる
+//   果物・どんぐり：低めで弾む、その曲のリズムとベースの楽器（宝石のメロディとぶつからないよう、高さは G4 くらいまで）。大きい物ほど低い所から。いちばん上まで行ったら下から
+//   2音目（1段上の短い合いの手）だけ、次の16分音符の刻みにそろえる（効果音モードは SFX_QUEUE_GAP 秒後）
+//   次を食べたら、まだ鳴っていない合いの手は省く（後ろに並んで、どんどん遅れることがない）
+//   殻つきなどの硬い物：きらっと一音（これも、食べた瞬間に）
+const sfxPend = [];   // まだ鳴らしていない合いの手
+function eatNow(q) {
+  const now = AC.currentTime, t = now + 0.005, music = soundMode === 'music' && !!mus.timer;
+  if (now - sfx.lastNoteT > C.EAT_COMBO_GAP) sfx.step = 0; else sfx.step++;
+  sfx.lastNoteT = now;
+  sfxPend.length = 0;                                     // 前に食べた物の、まだ鳴っていない合いの手は省く
+  const ch = music ? chordAt(t) : CH.tonic, vol = 0.055 + 0.03 * q.ratio;
+  if (q.kind === 'hard') {
+    const pool = chordNotes(ch, q.ratio > 0.66 ? 67 : 74, 93), m = pool[sfx.step % pool.length];
     play(S.ev.hard, t, m + wob(), 0.9, vol * 0.55 * mx('hard'));
     myNote(q.x, q.y, t, 'hard', 0.35 + 0.5 * q.ratio);
-    return 1;
+    return;
   }
-  // 果物（どんぐりも）：その曲のリズムとベースの楽器で、短いフレーズ。大きい物ほど低い音域から
-  const lo = q.ratio > 0.66 ? 48 : q.ratio > 0.33 ? 55 : 62, base = rising(pool(lo), 'm'), both = q.kind === 'both';
-  const ph = FRUIT_PHRASES[sfx.step % FRUIT_PHRASES.length];
-  ph.forEach(([off, st], i) => {
-    const tt = at(off), m = stepNote(music, tt, lo, base, st);
-    play(S.ev.fruit, tt, m, 0.2, (i ? 0.65 : 1) * (both ? vol * 0.8 : vol) * mx('fruit'), { w: i ? 0 : q.ratio });
-    if (both && i === ph.length - 1) play(S.ev.hard, tt, m + 24, 0.9, vol * 0.25 * mx('hard'));   // どんぐり：最後に小さなきらっ
-    myNote(q.x, q.y, tt, both ? 'both' : 'fruit', (i ? 0.25 : 0.5) + 0.5 * q.ratio);
-  });
-  return ph[ph.length - 1][0] + 1;
+  const both = q.kind === 'both', pool = chordNotes(ch, q.ratio > 0.66 ? 45 : q.ratio > 0.33 ? 50 : 55, 67), k = sfx.step % pool.length, m = pool[k];
+  play(S.ev.fruit, t, m, 0.2, (both ? vol * 0.8 : vol) * mx('fruit') * (1 + Math.min(0.3, sfx.step * 0.04)), { w: q.ratio });   // 続けるほど、少しずつ強く
+  myNote(q.x, q.y, t, both ? 'both' : 'fruit', 0.5 + 0.5 * q.ratio);
+  sfxPend.push({ t: music ? nextGrid(now + 0.06, 1) : now + C.SFX_QUEUE_GAP, m: pool[k + 1] ?? m + 12, v: vol * 0.55 * (both ? 0.8 : 1), both, q });
+  pumpQueue(now);
+}
+function pumpQueue(now) {   // 合いの手を、その時刻が近づいたら鳴らす（音楽の刻みの中と、効果音モードでは毎コマ呼ばれる）
+  if (!AC) return;
+  while (sfxPend.length && sfxPend[0].t <= now + 0.12) {
+    const p = sfxPend.shift();
+    if (p.t < now - 0.01) continue;                       // 遅れすぎた合いの手は省く
+    play(S.ev.fruit, p.t, p.m, 0.2, p.v * mx('fruit'), { w: 0 });
+    if (p.both) play(S.ev.hard, p.t, p.m + 24, 0.9, p.v * 0.45 * mx('hard'));   // どんぐり：小さなきらっ
+    myNote(p.q.x, p.q.y, p.t, p.both ? 'both' : 'fruit', 0.25 + 0.5 * p.q.ratio);
+  }
+}
+// 果物の流れを全部食べ切った：その曲のバスドラムとベースで、短く「ドン」と締める（次の16分音符で）。光の輪も
+function flowDone(x, y) {
+  sfx.step = -1;                                          // 次の流れは、また下から
+  rings.push({ x, y, r0: 10, grow: 70 + ham.r, t: 0, life: 0.6, width: 6, color: '255,200,110' });
+  rings.push({ x, y, r0: 6, grow: 40 + ham.r * 0.6, t: 0.06, life: 0.5, width: 3, color: '255,255,255' });
+  if (!AC || !live()) return;
+  const music = soundMode === 'music' && !!mus.timer, now = AC.currentTime, t = music ? nextGrid(now + 0.01, 1) : now + 0.01;
+  const ch = music ? chordAt(t) : CH.tonic, g = (S.gain ?? 1) * mx('big') * 0.85, K = S.kit;
+  play(K.kick, t, 0, 0, 0.12 * g);
+  play(K.bass, t, rootIn(ch, 36), beatSec() * 0.9, 0.1 * g);
+  myNote(x, y, t, 'fruit', 1);
 }
 function playClusterChord(q, t, music) {   // 宝石のかたまりを食べ切った：その場所できらっ（見た目）と、小さな高い音だけ（背景のバンドは応えない）
   const n = q.chord, ch = music ? chordAt(t) : CH.tonic;   // 効果音モードは主音の和音
@@ -3404,8 +3498,7 @@ function playClusterChord(q, t, music) {   // 宝石のかたまりを食べ切�
   return m;
 }
 // 宝石の列：列ごとに、違う形の短いフレーズを、その曲の音階（いまの和音に合う高さ）で鳴らす。テーマのメロディは、締めだけにとっておく
-//   形（ROW_FORMS）：上がる・下がる・山なり・谷・1つ飛ばしで跳ねる・高い音と低い音のかけ合い・同じ音を刻んで最後に跳ぶ。同じ形は2回続けない（向きを入れた、聞こえる形で比べる）
-//   向き：列のどちらの端から食べ始めたかで決める。左の端（縦の列は上の端）から＝そのまま、反対の端から＝上下を逆に。途中から食べ始めたときは、近い方の端から
+//   形（ROW_FORMS）：上がる・下がる・山なり・谷・1つ飛ばしで跳ねる・高い音と低い音のかけ合い・同じ音を刻んで最後に跳ぶ。同じ形は2回続けない
 //   楽器：ついて歩いている仲間を、列ごとに順番に1人ずつ。その仲間の楽器のうち、音の高さがある方で（音符の光は、その仲間の色）。仲間がいなければ、今までの列の楽器
 //   一つ食べるごとに一音、その曲の刻みで（続けて食べて詰まったら、次の刻みへ順に）。最後の1個は、落ち着く音（主音。和音になければ根音）に着地して締める
 // 楽器ごとの大きさの補正（列のメロディに使うとき）。今までの列の楽器の1音と、いちばん大きい所（0.05秒）が同じくらいになるように測って決めた
@@ -3432,12 +3525,8 @@ function pickForm(dir, mem = rowSnd) {   // 前と、聞こえる形が同じに
   mem.last = dir > 0 ? f.id : f.inv; mem.lastBase = f.id;
   return f;
 }
-function rowStart(g, f) {   // 列の最初の1個を食べた：向き・形・楽器（仲間）を決める
-  const mates = foods.filter(o => o.cluster === f.cluster).concat([f]), at = o => (o === f && f.suck ? [f.suck.x0, f.suck.y0] : [o.x, o.y]);
-  const e0 = mates.reduce((a, o) => (o.ri < a.ri ? o : a)), e1 = mates.reduce((a, o) => (o.ri > a.ri ? o : a));
-  const [x0, y0] = at(e0), [x1, y1] = at(e1), horiz = Math.abs(x1 - x0) >= Math.abs(y1 - y0), zeroIsStart = horiz ? x0 <= x1 : y0 <= y1;   // 左の端（縦なら上の端）が「そのまま」
-  const [fx, fy] = at(f), nearZero = Math.hypot(fx - x0, fy - y0) <= Math.hypot(fx - x1, fy - y1);
-  g.dir = nearZero === zeroIsStart ? 1 : -1;
+function rowStart(g, f) {   // 列の最初の1個を食べた：形・楽器（仲間）を決める
+  g.dir = 1;                                              // 向き：いつも、選んだ形のまま（食べ始めた端で上下を逆にする仕組みは、20回目でやめた）
   g.form = pickForm(g.dir); g.j = 0;
   g.voice = null; g.pal = null;
   const fol = C.PALS ? pals.list.filter(p => p.state === 'follow' || p.state === 'join' || p.state === 'party') : [];
@@ -3576,14 +3665,14 @@ function specialEat(f) {
   if (f.special !== 'big') t = crystalNote(f, music, now);
   if (f.special !== 'crystal') bigPhrase(f, music, now, t);
 }
-function crystalNote(f, music, now) {   // 結晶：6個で1つのフレーズ（形は列と同じ選び方。向きは、食べたときに進んでいた向き：右へ＝そのまま、左へ＝逆さ）。6個目は主音に着地
+function crystalNote(f, music, now) {   // 結晶：6個で1つのフレーズ（形は列と同じ選び方。いつも、選んだ形のまま）。6個目は主音に着地
   const th = S.theme;
   let t = Math.max(rowSnd.next, now + 0.015);
   if (music) t = nextGrid(t, th.grid);
   if (t - now > beatSec() * 1.5) return undefined;     // 詰まりすぎたら、鳴らさない（音がどんどん遅れないように）
   rowSnd.next = music ? T16(idx16(t) + th.gap) : t + C.ROW_SFX_GAP;
   let c = rowSnd.cry;
-  if (!c || c.j >= 6) { const dir = ham.vx >= 0 ? 1 : -1; c = rowSnd.cry = { dir, form: pickForm(dir, rowSnd.cryMem), j: 0 }; }
+  if (!c || c.j >= 6) c = rowSnd.cry = { dir: 1, form: pickForm(1, rowSnd.cryMem), j: 0 };
   const pool = scaleNotes(76, 98), j = c.j++;
   let m;
   if (j < 5) m = phraseNote(c.form, c.dir, j, 5, pool);
