@@ -129,6 +129,10 @@ const CONFIG = {
   // 頬袋：上限はなく、いつでも食べられる（14回目で決めた）
   //   入れた食べ物の「大きさ」の合計が POUCH_PER_BODY × 体の大きさ くらいで、頬が「ふだんのふくらみ」になる（見た目だけ）
   POUCH_PER_BODY: 4.5,
+  // ほっぺの大きさ（体の半径の何倍か）：ふくらみ（中身の量 ÷ ふだんの量 の平方根）が 1 まで 0.42、そこから 3.2 まで 1 ふえるごとに 0.36（21回目は 0.30 で、3.2 で止まっていた）、
+  //   そのあとも 0.13 ずつ大きくなり続ける（サビの終わりのふくらみ 5〜5.5 で、片方のほっぺが顔の1.5倍くらい）。いちばん大きくて CHEEK_MAX
+  CHEEK_MAX: 1.55,
+  CHEEK_PER_CHARGE: 0.07,   // 締めのためで、1段ためるごとに、さらに大きく
   // 消化：動きながら、頬袋の古いものから少しずつ消化していく（待ち時間なし。たくさんたまっても、速くはならない）
   //   1秒に消化できる量 = DIGEST_SPEED × 体の大きさ （食べ物の「大きさ」の単位）
   DIGEST_SPEED: 1.5,        // （14回目は 1.1 で、たまると2倍。上限なしで倍速をなくしたので、サビの前の育ち具合が前の「満腹ON」と同じくらいになるように）
@@ -322,6 +326,16 @@ const CONFIG = {
   SHAKE_BIG_COOLDOWN: 5,    //   ただし前に揺れてからこの秒数のあいだは揺らさない（続けて揺れないように）
   SHAKE_UNLOCK: 3,          // 新しく食べられるようになった瞬間の揺れ（px）
   SHAKE_BURST: 7,           // 曲の締めで、頬袋の中身を噴き出したときの揺れ（px、いちばん大きい）
+  // 締めの「ため」（L キーで入り切り。表示は「ためON」「ためOFF」）：締め（サビのあと、噴き出す前のテーマの所）に入ったら合図を出す
+  //   長押し（パソコン：マウスのボタンかスペース。スマホ：画面のどこか）の間は、その場でこらえて、拍の頭ごとにカメラが一段ずつ「グン」と寄る
+  //   CHARGE_STEPS 段（1小節）でマックス。離すと、次の拍の頭で、カメラが勢いよく引いて、どばーっと噴き出す（テーマの着地も、この瞬間）
+  //   待っている間と押している間は、締めの、着地の手前の小節をくり返す。CHARGE_AUTO 拍たっても押さなければ、自動でためて、マックスで噴き出す
+  //   宝の数は、ためた段数では変えない（頬袋の中身の数のまま）
+  CHARGE: true,
+  CHARGE_STEPS: 4,
+  CHARGE_AUTO: 8,           // 押さなかったときに、自動でため始めるまで（拍。2小節）
+  CHARGE_ZOOM: 0.3,         // 1段ためるごとに、カメラが寄る分（いまの見え方の何倍ふえるか。4段で 2.2 倍）
+  CHARGE_SHAKE: 13,         // マックスまでためて噴き出したときの揺れ（px）。ためた段数が少ないほど小さい（このときだけ、強く1回）
   SHAKE_DECAY: 12,          // 揺れが収まる速さ（px/秒）
   // 音量：全体（- / =）、背景の音楽（[ / ]）、効果音（, / .）を、それぞれ 0〜10 の目盛りで変えられる。変えた値はブラウザに保存される
   SOUND_VOLUME: 0.45,       // 全体の音量の目盛りが 8 のときの大きさ（前は 0.35。0 で消音）。目盛り10で約1.6倍、5で約0.4倍
@@ -417,10 +431,11 @@ const C = CONFIG;
 //  kit：その曲の太鼓とベース（サビの頭の「ジャン」と、特別な食べ物「大きな実」のフレーズ。tom・toms・comp は、前のバンドの応えの楽器で、今は使っていない）
 //  ev：出来事の音の楽器 ― fruit 果物（リズムとベース。21回目からは、果物の音の1オクターブ下に小さく重ねる）、fruitHi 果物の音（立ち上がりのはっきりした、はじく・たたく音）、hard 殻つきなどの硬い物、blob・cluster 宝石のかたまり、bump 取れない物に当たった
 //    [[大きさが足りない楽器, 高さ, 大きさの倍率], [歯が足りない楽器, 高さ, 倍率]]、growB・growT 体・歯が伸びた、unlock 新しく食べられる、sparkle 巣に積もる
-//  mix：出来事の音（fruit・fruitHi・hard・blob・grow・unlock・sparkle、特別な食べ物の big・bigHit・crystal）の大きさの倍率。楽器によって聞こえる大きさがちがうので、1曲目と同じくらいに聞こえるようにそろえる
+//  mix：出来事の音（fruit・fruitHi・hard・blob・grow・unlock・sparkle、特別な食べ物の big・bigHit・crystal、仲間に会った「ジャーン」の fanfare）の大きさの倍率。楽器によって聞こえる大きさがちがうので、1曲目と同じくらいに聞こえるようにそろえる
 // ============================================================
 const SONGS = [
   { // 1曲目：今までの曲。マリンバとベルのポップ
+    mix: { fanfare: 0.9 },
     id: 'pop', name: 'はじまりの野原', short: '野原', band: { body: ['ベース', 'マリンバ', '低い和音', '木の太鼓', '歩くベース'], teeth: ['ハイハット', 'ベル', 'ガラス', 'きらきら', 'シェイカー'] }, bpm: 104, swing: 0.5, swingUnit: 8, key: 0, scale: [0, 2, 4, 7, 9], gain: 1,
     look: { ground: '#a9c79a', edge: '#6d8a5f', bg: '#2b2b2b', glow: '255,225,90' },
     chords: { intro: ['C△7', 'Am7', 'F△7', 'G6'], a: ['C△7', 'Am7', 'F△7', 'G6'], b: ['F△7', 'G6', 'Em7', 'Am7'], build: ['Dm7', 'G7'],
@@ -463,7 +478,7 @@ const SONGS = [
     ev: { fruit: 'marimba', fruitHi: 'marimba', hard: 'glass', blob: 'bell', cluster: 'glass', bump: [['wood', 55], ['wood', 73]], growB: 'marimba', growT: 'glass', unlock: 'bell', sparkle: 'glass' },
   },
   { // 2曲目：シティポップ。エレピの厚い7th・9thの和音、チョッパーベース、ギターのカッティング、16分のグルーヴ
-    id: 'city', name: '夜の街', short: '夜の街', band: { body: ['キック', 'ベース', 'エレピ', 'スラップ', '低い和音'], teeth: ['ハイハット', 'ギター', 'シェイカー', '鐘', 'きらきら'] }, bpm: 110, swing: 0.54, swingUnit: 16, key: 2, scale: [0, 2, 4, 7, 9], gain: 0.7, mix: { grow: 0.8, big: 0.73, crystal: 1.12, fruitHi: 1.7, bigHit: 1.7 },
+    id: 'city', name: '夜の街', short: '夜の街', band: { body: ['キック', 'ベース', 'エレピ', 'スラップ', '低い和音'], teeth: ['ハイハット', 'ギター', 'シェイカー', '鐘', 'きらきら'] }, bpm: 110, swing: 0.54, swingUnit: 16, key: 2, scale: [0, 2, 4, 7, 9], gain: 0.7, mix: { grow: 0.8, big: 0.73, crystal: 1.12, fruitHi: 1.7, bigHit: 1.7, fanfare: 0.8 },
     look: { ground: '#b9b3cf', edge: '#76709a', bg: '#1b1a2c', glow: '255,130,205' },
     chords: { intro: ['G△9', 'F#7b9', 'Bm9', 'D9'], a: ['G△9', 'F#7b9', 'Bm9', 'D9'], b: ['Em9', 'A13', 'F#m7', 'Bm9'], build: ['Em9', 'A13'],
       chorus: ['G△9', 'F#7b9', 'Bm9', 'D9'], hold: 'D△9', theme: ['G△9', 'A13'], land: 'D△9', calm: ['D△9', 'G△9'] },   // IV△7 → III7 → VIm7 → I7
@@ -504,7 +519,7 @@ const SONGS = [
     ev: { fruit: 'slapPop', fruitHi: 'slapPop', hard: 'epBell', blob: 'epiano', cluster: 'epBell', bump: [['slapDead', 40, 3], ['rim', 0, 3.5]], growB: 'epiano', growT: 'epBell', unlock: 'epBell', sparkle: 'epBell' },
   },
   { // 3曲目：エレクトロスウィング。8分音符がはねる、4つ打ちのキックと手拍子、ウッドベース、ミュートしたトランペットとクラリネット。短調
-    id: 'swing', name: '古いダンスホール', short: 'ホール', band: { body: ['キック', 'ウッドベース', 'ピアノ', '低い木管', 'ホーン'], teeth: ['手拍子', 'トランペット', 'クラリネット', 'ライド', 'ビブラフォン'] }, bpm: 124, swing: 0.64, swingUnit: 8, key: 2, scale: [0, 3, 5, 7, 10], gain: 0.63, mix: { blob: 1.5, fruit: 0.7, big: 0.86, crystal: 1.27, fruitHi: 1.9, bigHit: 1.25 },
+    id: 'swing', name: '古いダンスホール', short: 'ホール', band: { body: ['キック', 'ウッドベース', 'ピアノ', '低い木管', 'ホーン'], teeth: ['手拍子', 'トランペット', 'クラリネット', 'ライド', 'ビブラフォン'] }, bpm: 124, swing: 0.64, swingUnit: 8, key: 2, scale: [0, 3, 5, 7, 10], gain: 0.63, mix: { blob: 1.5, fruit: 0.7, big: 0.86, crystal: 1.27, fruitHi: 1.9, bigHit: 1.25, fanfare: 0.87 },
     look: { ground: '#cdbf9e', edge: '#8a7752', bg: '#231b13', glow: '255,205,110' },
     chords: { intro: ['Dm6', 'A7'], a: ['Dm6', 'Gm6', 'A7', 'Dm6'], b: ['Gm6', 'Dm6', 'E7', 'A7'], build: ['Gm6', 'A7'],
       chorus: ['Dm6', 'Bb7', 'A7', 'Dm6'], hold: 'Dm6', theme: ['Gm6', 'A7'], land: 'Dm6', calm: ['Dm9', 'Gm9'] },
@@ -545,7 +560,7 @@ const SONGS = [
     ev: { fruit: 'upright', fruitHi: 'pizz', hard: 'vibes', blob: 'pianoStab', cluster: 'vibes', bump: [['upright', 33, 1.7], ['woodblock', 0]], growB: 'pianoStab', growT: 'vibes', unlock: 'vibes', sparkle: 'vibes' },
   },
   { // 4曲目：サイケデリックトランス。4つ打ちの間を16分のベースが転がる、フィルターがうねるアシッド、不思議な響きの音階
-    id: 'psy', name: 'ふしぎな森', short: '森', band: { body: ['キック', 'ベース', 'パッド', 'アシッド', 'タム'], teeth: ['裏ハット', 'ふしぎ音', 'ハイハット', '手拍子', 'きらきら'] }, bpm: 142, swing: 0.5, swingUnit: 8, key: 4, scale: [0, 1, 4, 5, 7, 8, 10], gain: 1.2, mix: { fruit: 1.3, blob: 1.35, big: 0.6, crystal: 1.64, fruitHi: 1.6, bigHit: 1.25 },
+    id: 'psy', name: 'ふしぎな森', short: '森', band: { body: ['キック', 'ベース', 'パッド', 'アシッド', 'タム'], teeth: ['裏ハット', 'ふしぎ音', 'ハイハット', '手拍子', 'きらきら'] }, bpm: 142, swing: 0.5, swingUnit: 8, key: 4, scale: [0, 1, 4, 5, 7, 8, 10], gain: 1.2, mix: { fruit: 1.3, blob: 1.35, big: 0.6, crystal: 1.64, fruitHi: 1.6, bigHit: 1.25, fanfare: 1.25 },
     look: { ground: '#9fc4bd', edge: '#4e837d', bg: '#150d24', glow: '190,120,255' },
     chords: { intro: ['E', 'E'], a: ['E', 'E', 'F', 'E'], b: ['Am', 'F', 'Dm', 'E'], build: ['Dm', 'F'], chorus: ['E', 'E', 'F', 'E'], hold: 'E', theme: ['E', 'F'], land: 'E', calm: ['E', 'Am'] },
     theme: { mode: 'phrygianDom', rhythm: [4, 4, 4, 8, 4, 4, 8], stretch: 2, stab: 1, grid: 2, gap: 2, rowStab: 2,                                // うねる電子音で、16分音符に細かく刻む
@@ -585,7 +600,7 @@ const SONGS = [
     ev: { fruit: 'acid', fruitHi: 'acidPluck', hard: 'pluck', blob: 'supersaw', cluster: 'pluck', bump: [['zap', 40, 0.6], ['zap', 76, 0.55]], growB: 'acid', growT: 'pluck', unlock: 'pluck', sparkle: 'pluck' },
   },
   { // 5曲目：シュランツ。歪んだ重い4つ打ち、金属的なノイズのループ。ひたすら反復して高揚させる（音程は少なめ）
-    id: 'schranz', name: '真夜中の工場', short: '工場', band: { body: ['キック', 'うなり', '和音', '工場太鼓', '2連キック'], teeth: ['ハイハット', '金属音', 'ノイズ', '手拍子', 'キン'] }, bpm: 155, swing: 0.5, swingUnit: 8, key: -3, scale: [0, 3, 5, 7, 10], gain: 1, mix: { blob: 0.72, big: 0.55, crystal: 1.95, fruitHi: 1.6 },
+    id: 'schranz', name: '真夜中の工場', short: '工場', band: { body: ['キック', 'うなり', '和音', '工場太鼓', '2連キック'], teeth: ['ハイハット', '金属音', 'ノイズ', '手拍子', 'キン'] }, bpm: 155, swing: 0.5, swingUnit: 8, key: -3, scale: [0, 3, 5, 7, 10], gain: 1, mix: { blob: 0.72, big: 0.55, crystal: 1.95, fruitHi: 1.6, fanfare: 1.3 },
     look: { ground: '#b1b0ab', edge: '#6a6965', bg: '#101010', glow: '255,95,60' },
     chords: { intro: ['Am'], a: ['Am', 'Am', 'Am', 'Am'], b: ['Am', 'Am', 'F', 'G'], build: ['F', 'G'], chorus: ['Am', 'Am', 'Am', 'Am'], hold: 'Am', theme: ['F', 'G'], land: 'Am', calm: ['Am', 'F'] },
     theme: { mode: 'minor', rhythm: [4, 4, 4, 8, 4, 4, 8], stretch: 2, stab: 1, grid: 2, gap: 2, rowStab: 2,                                       // 歪んだ短い音の連打で
@@ -651,14 +666,14 @@ let touchUI = qs.has('touch') || matchMedia('(pointer: coarse)').matches || /And
   (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
 let lowFx = qs.has('lowfx');   // 光や輪などの演出を軽くする（動きが重いときは自動で切り替わる）
 const ptr = { down: false, id: null, sx: 0, sy: 0, wx: 0, wy: 0 };   // 押しているマウス・指（画面の位置と、押した所の広場の位置）
-let cam = { x: 0, y: 0, zoom: 1, lx: 0, ly: 0, vx: 0, vy: 0, wide: 0, fast: false }, view = { VS: 1, ox: 0, oy: 0, x0: 0, y0: 0, w: 1, h: 1 }, clusterSeq = 0;
+let cam = { x: 0, y: 0, zoom: 1, lx: 0, ly: 0, vx: 0, vy: 0, wide: 0, fast: false, push: 0, pv: 0 }, view = { VS: 1, ox: 0, oy: 0, x0: 0, y0: 0, w: 1, h: 1 }, clusterSeq = 0;
 // カメラの寄り具合：体が小さいほど寄る。CAM_FULL_AT で広場全体
 function zoomFor(body) {
   const t = clamp((body - C.START_BODY) / (C.CAM_FULL_AT - C.START_BODY), 0, 1);
   return lerp(C.CAM_ZOOM_START, 1, t * t * (3 - 2 * t));
 }
 const msgCd = {};
-const input = { up: false, down: false, left: false, right: false, eat: false, eatQueued: false, rHeld: false, rTime: 0 };
+const input = { up: false, down: false, left: false, right: false, eat: false, eatQueued: false, rHeld: false, rTime: 0, charge: false };
 
 // ハムスターの見た目の大きさ（当たり判定も同じ）：体の数値の伸びより速く大きくなる
 const HAM_POW = Math.log(C.HAM_SCALE_AT_10 * px(10) / px(C.START_BODY)) / Math.log(px(10) / px(C.START_BODY));
@@ -748,9 +763,10 @@ function songTick(dt) {
   }
   if (song.part === 'finale' && !song.burst) {
     const land = landingStep() * sixteenth();         // 小節の頭なので、はね具合に関係なく
-    if (!song.themeSent && song.t >= land - themeLen() * sixteenth() - 0.05) { song.themeSent = true; if (!musicLive()) sfxTheme(land - song.t); }   // 効果音モード：テーマをその場で鳴らす
-    ham.shiver = song.t >= land - beatSec() ? 1 : 0;  // 着地の直前の拍：ぷるぷる震えて、ためる
-    if (song.t >= land) burst();                      // 主音の着地と同時に、頬袋の中身を全部噴き出す
+    if (!song.themeSent && song.t >= land - themeLen() * sixteenth() - 0.05) { song.themeSent = true; if (!musicLive() && !C.CHARGE) sfxTheme(land - song.t); }   // 効果音モード：テーマをその場で鳴らす（ためON は、離したときに着地の和音だけ）
+    if (C.CHARGE) chargeTick(dt);                     // ため：長押しでためて、離すと噴き出す（待っている間は、着地の手前の小節をくり返す）
+    else ham.shiver = song.t >= land - beatSec() ? 1 : 0;  // ためOFF：着地の直前の拍に、ぷるぷる震えて、ためる
+    if (song.t >= land && (!C.CHARGE || charge.state === 'go')) burst();   // 主音の着地と同時に、頬袋の中身を全部噴き出す
   }
 }
 // サビ：広場に食べ物が降ってくる（宝石の列・かたまりも。降ってきた物も、列はテーマ、かたまりは和音で鳴る。巣の山の上には降らない）
@@ -809,9 +825,86 @@ function spawnSpecial(type) {   // ハムスターのまわり（ほかの物と
   }
   return null;
 }
+// 締めの「ため」
+//   state：'off' まだ／'ready' 合図を出して、押すのを待っている／'hold' 押している／'auto' 自動でためている／'go' 離した（次の拍の頭で噴き出す）／'done' 噴き出した
+//   lv：ためた段数（0〜CHARGE_STEPS）。拍の頭ごとに1段（曲の時計がくり返しで戻っても、拍の数は数え続ける）
+const charge = { state: 'off', lv: 0, wait: 0, maxBeats: 0, needUp: false, prevT: 0, schedT: -9, log: null };
+const chargeLive = () => C.CHARGE && song.part === 'finale' && !song.burst && !songOver;
+const chargeHolding = () => charge.state === 'hold' || charge.state === 'auto' || charge.state === 'go';
+const chargePressed = () => ptr.down || input.eat || input.charge;   // 押しているか（マウス・指・スペース。ボットは input.charge）
+function chargeReset() { Object.assign(charge, { state: 'off', lv: 0, wait: 0, maxBeats: 0, needUp: false, prevT: 0, schedT: -9, log: null }); input.charge = false; bot.charging = false; }
+// 曲の時計を d 秒ずらす（くり返し：-1小節 ／ 離したとき：着地まで飛ぶ）。音楽の刻みも、覚えている刻みの番号も、いっしょにずらす
+function shiftSong(d) {
+  const dk = Math.round(d / sixteenth());
+  if (musicLive()) { mus.t0 -= d; if (mus.timer) mus.step += dk; for (const k in lanes) if (!k.endsWith(':s')) lanes[k] += dk; }
+  song.t += d; charge.prevT += d;
+  if (charge.log) charge.log.shifts.push(+d.toFixed(3));
+}
+const landT = () => landingStep() * sixteenth();   // 締めで、テーマが主音に着地する時刻（曲の時計）
+function chargeLoop() {   // 押していない・押している間は、着地の手前の1小節をくり返す（音楽の刻みが着地を予約する前に）
+  if (!chargeLive() || charge.state === 'go') return;
+  const look = musicLive() && mus.timer ? 0.19 : 0;
+  while (song.t >= landT() - look) shiftSong(-barSec());
+}
+function chargeGo() {   // 離した：次の拍の頭（音楽の刻みがまだ予約していない所）で、着地して噴き出すように、曲の時計を進める
+  const bt = beatSec(), margin = musicLive() && mus.timer ? 0.17 : 0;
+  let tb = Math.ceil(song.t / bt - 1e-6) * bt;
+  if (tb - song.t < margin) tb += bt;
+  charge.state = 'go';
+  const d = landT() - tb;
+  if (d > 1e-6) shiftSong(d);
+  if (charge.log) { charge.log.release = { at: +clock.toFixed(3), audio: AC ? +AC.currentTime.toFixed(3) : null, lv: charge.lv, toLand: +(landT() - song.t).toFixed(3) }; }
+}
+function chargeTick(dt) {
+  if (!chargeLive()) { if (charge.state !== 'off' && charge.state !== 'done' && song.burst) charge.state = 'done'; return; }
+  const bt = beatSec(), pressed = chargePressed();
+  if (charge.state === 'off') {   // 締めに入った：合図を出す（いま押している指は、いったん離すまで数えない）
+    Object.assign(charge, { state: 'ready', lv: 0, wait: 0, maxBeats: 0, needUp: pressed, prevT: song.t, schedT: -9 });
+    charge.log = { start: +clock.toFixed(3), presses: [], steps: [], shifts: [], release: null, land: null, burst: null, auto: false };
+  }
+  if (charge.needUp && !pressed) charge.needUp = false;
+  if (charge.state === 'ready' && pressed && !charge.needUp) { charge.state = 'hold'; charge.log.presses.push(+clock.toFixed(3)); }
+  if (charge.state === 'auto' && pressed && !charge.needUp) charge.state = 'hold';      // 自動でためている途中で押したら、そこから自分で
+  if (charge.state === 'hold' && !pressed) chargeGo();                                   // 離した
+  // 次の拍の頭で、一段上がる音を先に予約する（音と、カメラの「グン」をそろえる）
+  const toBeat = Math.ceil(song.t / bt - 1e-6) * bt - song.t;
+  if ((charge.state === 'hold' || charge.state === 'auto') && toBeat < 0.06 && Math.abs(charge.schedT - (song.t + toBeat)) > 1e-3) {
+    charge.schedT = song.t + toBeat;
+    if (AC && live()) chargeSound(AC.currentTime + toBeat, Math.min(C.CHARGE_STEPS, charge.lv + 1), charge.lv >= C.CHARGE_STEPS);
+  }
+  // 拍の頭をまたいだ
+  const b0 = Math.floor(charge.prevT / bt + 1e-6), b1 = Math.floor(song.t / bt + 1e-6);
+  if (b1 > b0 && song.t - charge.prevT < bt * 1.5) {
+    if (charge.state === 'ready' && ++charge.wait >= C.CHARGE_AUTO) { charge.state = 'auto'; charge.log.auto = true; }   // 2小節たっても押さない：自動でためる
+    if (charge.state === 'hold' || charge.state === 'auto') {
+      if (charge.lv < C.CHARGE_STEPS) { charge.lv++; charge.log.steps.push({ lv: charge.lv, at: +clock.toFixed(3), audio: AC ? +AC.currentTime.toFixed(3) : null }); ham.pulse = 1; }
+      else charge.maxBeats++;
+      drive.lv = 1; drive.at = audioNow();             // ためている間は、伴奏もいちばん厚いまま（押していることも、自分の演奏）
+      if (charge.state === 'auto' && charge.lv >= C.CHARGE_STEPS && charge.maxBeats >= 1) chargeGo();   // 自動：マックスで1拍こらえて、噴き出す
+    }
+  }
+  charge.prevT = song.t;
+  ham.shiver = chargeHolding() && charge.lv >= C.CHARGE_STEPS ? 1 : 0;   // マックス：小刻みにふるえる（もう出る！）
+  chargeLoop();
+}
+function chargeSound(t, lv, max) {   // ためる音：拍ごとに一段ずつ上がる（「ため」の「シューッ」・小太鼓・和音を上がる音）。マックスでは、こらえる音
+  const bt = beatSec(), b = curBus; curBus = null;
+  try {
+    const ch = soundMode === 'music' && mus.timer ? chordAt(t) : CH.tonic, tones = chordNotes(triad(ch), 64, 100);
+    if (max) { noise(t, bt * 0.8, 0.008, 'highpass', 6000); play(S.ev.unlock, t, tones[Math.min(tones.length - 1, 9)] ?? 96, 0.5, 0.012 * mx('unlock')); return; }
+    noiseSweep(t, bt * 0.95, 0.016 + 0.006 * lv, 500 * Math.pow(1.7, lv - 1), 1400 * Math.pow(1.7, lv));
+    snare(t, 0.022 + 0.01 * lv);
+    play(S.ev.unlock, t, tones[Math.min(tones.length - 1, lv * 2 - 1)] ?? 84, 0.6, (0.016 + 0.004 * lv) * mx('unlock'));
+    if (lv >= C.CHARGE_STEPS) play(S.kit.kick, t, 0, 0, 0.08 * (S.gain ?? 1));
+  } finally { curBus = b; }
+}
 // 締め：主音の着地と同時に、頬袋の中身を全部、噴水や花火のように噴き出す。放物線を描いて巣（スタート地点）に降り注ぎ、宝の山に積もる
 function burst() {
-  song.burst = true; ham.shiver = 0;
+  const clv = C.CHARGE && charge.state !== 'off' ? charge.lv : -1, pull = clv >= 0 ? 0.35 + 0.65 * clv / C.CHARGE_STEPS : 0;   // ためた段数（ためOFF：-1）
+  if (charge.log) charge.log.burst = { at: +clock.toFixed(3), audio: AC ? +AC.currentTime.toFixed(3) : null, songT: +song.t.toFixed(3), landT: +landT().toFixed(3), lv: clv };
+  if (clv >= 0) { charge.state = 'done'; cam.pv -= 18 * pull; if (!musicLive() && AC && live()) hits(S.theme.land, 72 + S.key, AC.currentTime, 1, CH.fin.land); }   // カメラが勢いよく引く。効果音モードは、ここで着地の和音
+  ham.shiver = 0; input.charge = false;
+  song.burst = true;
   palsParty();                                       // ついて歩いていた仲間も、巣のまわりで喜ぶ
   const items = ham.pouch.splice(0), n = items.length;
   song.burstN = n;
@@ -830,9 +923,10 @@ function burst() {
     song.endAt = Math.max(fin + C.END_FINAL_RING, song.t + C.END_LAND_TAIL);   // 結果の画面：最後の1音が鳴り終わる頃（着地の和音の余韻が消えたあと）
     sfxEnding(fin);
   } else { song.finalAt = song.t; song.endAt = song.t + C.END_LAND_TAIL; }
-  shake = Math.max(shake, C.SHAKE_BURST); lastShakeAt = clock;
+  shake = Math.max(shake, clv >= 0 ? C.SHAKE_BURST + (C.CHARGE_SHAKE - C.SHAKE_BURST) * clv / C.CHARGE_STEPS : C.SHAKE_BURST); lastShakeAt = clock;   // ためた分だけ強く（このときだけ）
   squash(ham.face, 0.5); ham.relief = 3; ham.puff = 0;
-  rings.push({ x: ham.x, y: ham.y, r0: ham.r, grow: 260, t: 0, life: 0.8, width: 10, color: '255,240,160' });
+  rings.push({ x: ham.x, y: ham.y, r0: ham.r, grow: 260 * (1 + 0.6 * pull), t: 0, life: 0.8, width: 10, color: '255,240,160' });
+  if (pull > 0) rings.push({ x: ham.x, y: ham.y, r0: ham.r * 1.2, grow: 420 * pull, t: 0.05, life: 0.9, width: 6, color: '255,210,110' });
   rings.push({ x: ham.x, y: ham.y, r0: ham.r * 0.5, grow: 160, t: 0.08, life: 0.6, width: 5, color: '255,255,255' });
   if (n) say(`宝 +${n}`, '#fff27a', 3);
   if (AC && !musicLive()) popSound(AC.currentTime);   // 音楽モードでは、着地の音と同じ刻みで鳴る
@@ -896,7 +990,8 @@ function reset() {
   palsReset();                                              // バンドの仲間：1人目から
   earlyCd = 0;
   document.body.style.background = S.look.bg;               // 広場の外の色も、曲に合わせて
-  Object.assign(cam, { x: ham.x, y: ham.y, zoom: zoomFor(ham.body), lx: 0, ly: 0, vx: 0, vy: 0, wide: 0, fast: false });
+  Object.assign(cam, { x: ham.x, y: ham.y, zoom: zoomFor(ham.body), lx: 0, ly: 0, vx: 0, vy: 0, wide: 0, fast: false, push: 0, pv: 0 });
+  chargeReset();
   if (AC && soundMode === 'music' && !mus.timer) musicStart();
   hideResult();
   clusterSeq = 0; placeMiss = 0;
@@ -1664,30 +1759,31 @@ function palPhrase(p) {
 //   鳴っている間（1小節）、ほかの伴奏は少し小さくする（duckFor）。人数が増えるほど厚く豪華に：
 //     1人：和音3音＋高い音1つ＋バスドラム ／ 2人：高い和音を3音に ／ 3人：低い根音のベースと、和音の1オクターブ下
 //     4人：シンバル ／ 5人：さらに上で駆け上がるきらきらと、大きめのシンバル
-const FANFARE_DUCK = 0.55;
+// 大きさ：人数ごとの倍率（21回目は伴奏より +5〜+14dB で、浮いていた。22回目に、+2〜+4dB くらいに）。鳴っている間は、ほかの伴奏を FANFARE_DUCK 倍に（21回目は 0.55 ≒ −5.2dB）
+const FANFARE_VOL = [0.28, 0.39, 0.5, 0.47, 0.48], FANFARE_DUCK = 0.8;   // 曲ごとの補正は、設計図の mix.fanfare
 function palFanfare(p, kb) {
-  const t = T16(kb), ch = stepChord(kb), n = p.i + 1, len = barSec(), K = S.kit, g = S.gain ?? 1, tri = triad(ch);
+  const n = p.i + 1, fk = FANFARE_VOL[Math.min(4, n - 1)] * mx('fanfare'), t = T16(kb), ch = stepChord(kb), len = barSec(), K = S.kit, g = (S.gain ?? 1) * fk, tri = triad(ch);
   const b = curBus; curBus = null;   // 効果音の音量で（下げた伴奏といっしょに下がらない）
   const log = { n, t, voices: [], phrase: [] };
   try {
     const mid = chordNotes(tri, 55, 67).slice(0, 3), hi = chordNotes(tri, 72, 84).slice(0, 3);
-    for (const m of mid) play(S.ev.growB, t, m, len, 0.024 * mx('grow'));
-    for (const m of (n >= 2 ? hi : hi.slice(-1))) play(S.ev.unlock, t, m, len, 0.022 * mx('unlock'));
-    if (n >= 3) { play(K.bass, t, rootIn(ch, 36), len * 0.9, 0.09 * g); for (const m of mid) play(S.ev.growB, t, m - 12, len, 0.014 * mx('grow')); }
+    for (const m of mid) play(S.ev.growB, t, m, len, 0.024 * fk * mx('grow'));
+    for (const m of (n >= 2 ? hi : hi.slice(-1))) play(S.ev.unlock, t, m, len, 0.022 * fk * mx('unlock'));
+    if (n >= 3) { play(K.bass, t, rootIn(ch, 36), len * 0.9, 0.09 * g); for (const m of mid) play(S.ev.growB, t, m - 12, len, 0.014 * fk * mx('grow')); }
     play(K.kick, t, 0, 0, (0.09 + 0.012 * n) * g);
-    if (n >= 4) play(K.crash, t, 0, 1.8, (n >= 5 ? 0.045 : 0.03));
+    if (n >= 4) play(K.crash, t, 0, 1.8, (n >= 5 ? 0.045 : 0.03) * fk);
     log.voices.push(S.ev.growB + '×' + mid.length, S.ev.unlock + '×' + (n >= 2 ? hi.length : 1));
-    for (let i = 0; i <= p.i; i++) for (const pt of [...S.body[i], ...S.teeth[i]]) { bandHit(pt, t, ch, len, i === p.i ? 1.3 : 1); log.voices.push(pt[0]); }   // 集めた仲間全員で
+    for (let i = 0; i <= p.i; i++) for (const pt of [...S.body[i], ...S.teeth[i]]) { bandHit(pt, t, ch, len, (i === p.i ? 1.3 : 1) * fk); log.voices.push(pt[0]); }   // 集めた仲間全員で
     // 新しい仲間の楽器で、短いフレーズ（8分音符で5音、和音の音を駆け上がる。最後の音を少し伸ばす）
     const v = palVoices(p.i)[0], o = v ? v[2] || {} : {}, lo = Math.min(v ? voiceRange(o)[0] + 3 : 72, 74), pool = chordNotes(tri, lo, lo + 24);   // 2オクターブの中で（5つとも違う音に）
     const start = Math.max(0, Math.min(pool.length - 5, (pool.length - 5) >> 1));
     for (let j = 0; j < 5; j++) {
-      const tj = T16(kb + j * 2), m = pool[Math.min(pool.length - 1, start + j)] ?? (72 + S.key), last = j === 4, vv = v ? clamp((o.v ?? 0.02) * 3.4, 0.026, 0.08) * g * (VOICE_GAIN[v[0]] ?? 1) : 0.03 * mx('unlock');
+      const tj = T16(kb + j * 2), m = pool[Math.min(pool.length - 1, start + j)] ?? (72 + S.key), last = j === 4, vv = (v ? clamp((o.v ?? 0.02) * 3.4, 0.026, 0.08) * (S.gain ?? 1) * (VOICE_GAIN[v[0]] ?? 1) : 0.03 * mx('unlock')) * Math.min(1, fk * 1.6);   // フレーズは、ほかより少し前に
       play(v ? v[0] : S.ev.unlock, tj, m, sixteenth() * (last ? 6 : 2), vv * (last ? 1.15 : 1), o);
       myNote(p.x, p.y - palR(), tj, j % 2 ? 'gem' : 'fruit', 0.6 + 0.08 * j, hexRGB(PAL_COL[p.kind][0]));
       log.phrase.push(m);
     }
-    if (n >= 5) chordNotes(tri, 84, 100).forEach((m, j) => play(S.ev.sparkle, t + beatSec() * 2 + j * beatSec() / 8, m, 0.9, 0.014 * mx('sparkle')));   // 5人目：駆け上がるきらきら
+    if (n >= 5) chordNotes(tri, 84, 100).forEach((m, j) => play(S.ev.sparkle, t + beatSec() * 2 + j * beatSec() / 8, m, 0.9, 0.014 * fk * mx('sparkle')));   // 5人目：駆け上がるきらきら
   } finally { curBus = b; }
   duckFor(t, len, FANFARE_DUCK);
   pals.fanfare = log;
@@ -1821,6 +1917,7 @@ function update(dt) {
   else if (ptr.down) { [ix, iy, mag] = pointerSteer(); how = 'finger'; }
   else if (tiltOn()) { [ix, iy, mag] = tiltSteer(); how = tilt.mode; }
   if (ham.shiver) mag *= 0.15;                           // ためている間は、ほとんど動かない
+  if (C.CHARGE && chargeHolding() && chargeLive()) mag = 0;   // ため：押している間は、その場でこらえる
   if (mag > 0) started = true;
   ham.ix = ix; ham.iy = iy;
   const speed = C.MOVE_SPEED + C.MOVE_SPEED_PER_BODY * ham.body, rolling = how === 'roll' && !ham.shiver;
@@ -1873,6 +1970,12 @@ function update(dt) {
     }
     if (f.revive > 0) f.revive = Math.max(0, f.revive - dt / 0.3);
     f.dim = !f.edible || f.reviveIn > 0 ? 1 : f.revive;
+    if (f.look === 'shell') {                               // 殻つき：食べられるようになった瞬間に「パカッ」（はじめから食べられる物は、開いた殻で出てくる）
+      const open = f.edible && !(f.reviveIn > 0);
+      if (f.open === false && open) shellCrack(f);
+      f.open = open;
+      if (f.crack > 0) f.crack = Math.max(0, f.crack - dt / 0.35);
+    }
     if (f.shake > 0) f.shake -= dt;
     if (f.msgCd > 0) f.msgCd -= dt;
     if (f.hitCd > 0) f.hitCd -= dt;
@@ -1961,6 +2064,8 @@ function update(dt) {
 //   止まっている・ゆっくり小さく動いているときは、ハムスターが真ん中の CAM_DEADZONE の中にいる間は画面を動かさない
 //   体が育つほど引いていき、サビと締めでは広場全体が見えるまで引く
 function updateCamera(dt) {
+  const pt = C.CHARGE && chargeHolding() && chargeLive() ? charge.lv : 0;   // ため：ためた段数だけ寄る（拍の頭で一段ずつ、ばねで「グン」）
+  cam.pv += ((pt - cam.push) * 900 - cam.pv * 38) * dt; cam.push += cam.pv * dt;
   const wide = feast() || song.burst || songOver ? 1 : 0;
   cam.wide += (wide - cam.wide) * (1 - Math.exp(-dt * 1.2));
   let zt = lerp(zoomFor(ham.body), 1, cam.wide);
@@ -1985,6 +2090,7 @@ function updateCamera(dt) {
   // ばねで、なめらかに追う（急に向きを変えても、ぐいっと振らない）
   cam.vx += ((tx - cam.x) * w * w - 2 * w * cam.vx) * dt; cam.vy += ((ty - cam.y) * w * w - 2 * w * cam.vy) * dt;
   cam.x += cam.vx * dt; cam.y += cam.vy * dt;
+  if (cam.push > 0.05) { const k = (1 - Math.exp(-dt * 14)) * Math.min(1, cam.push); cam.x += (ham.x - cam.x) * k; cam.y += (ham.y - cam.y) * k; cam.vx *= 1 - k; cam.vy *= 1 - k; }   // ため：ハムスターをまん中に
   for (const [a, va, size, FS] of [['x', 'vx', vw, C.FIELD_W], ['y', 'vy', vh, C.FIELD_H]]) {
     const edge = Math.max(0, size / 2 - ham.r - 12), d = ham[a] - cam[a];
     if (Math.abs(d) > edge) cam[a] = ham[a] - Math.sign(d) * edge;               // 画面の外には出さない
@@ -2049,7 +2155,7 @@ function render() {
   const ax = PAD, ay = TOP, aw = Math.max(1, W - PAD * 2), ah = Math.max(1, H - TOP - BOTTOM - PAD);
   const full = Math.min(aw / C.FIELD_W, ah / C.FIELD_H), cover = Math.max(aw / C.FIELD_W, ah / C.FIELD_H);
   //   サビと締めでは、広場全体が見えるまで引く（cam.wide）
-  const VS = full * lerp(Math.max(1, Math.sqrt(cover / full / 1.3)), 1, cam.wide) * cam.zoom * (touchUI ? lerp(C.CAM_ZOOM_TOUCH, 1, cam.wide) : 1);
+  const VS = full * lerp(Math.max(1, Math.sqrt(cover / full / 1.3)), 1, cam.wide) * cam.zoom * (touchUI ? lerp(C.CAM_ZOOM_TOUCH, 1, cam.wide) : 1) * clamp(1 + C.CHARGE_ZOOM * cam.push, 0.72, 3);   // ため：寄る・噴き出すと勢いよく引く
   const hw = aw / 2 / VS, hh = ah / 2 / VS;
   const cx = C.FIELD_W > hw * 2 ? clamp(cam.x, hw, C.FIELD_W - hw) : C.FIELD_W / 2;
   const cy = C.FIELD_H > hh * 2 ? clamp(cam.y, hh, C.FIELD_H - hh) : C.FIELD_H / 2;
@@ -2070,6 +2176,7 @@ function render() {
   drawNest();
   drawFoods();
   drawPals();                                // バンドの仲間（ついて歩く仲間は、ハムスターの後ろ）
+  if (C.CHARGE && chargeLive()) drawChargeGlow();   // ため：ハムスターが光る
   drawHamster();
   drawFlyers();
   for (const m of motes) {                  // 体・歯が伸びた：オレンジ（体）・青（歯）の小さな光が上っていく
@@ -2134,6 +2241,7 @@ function render() {
     return;
   }
   if (!started && !songOver && !helpOpen) drawStartHint();
+  else if (C.CHARGE && chargeLive() && !menuOpen && !helpOpen) drawChargeHint();   // ため：長押しの合図と、ためた段数
   else if (touchUI && (!AC || AC.state !== 'running') && !songOver) drawSpeaker(ax + aw / 2, ay + ah - 34, true);   // スマホ：画面に触れるまで音を出せない
 }
 // 上の目盛り：果物（体）・宝石（歯）の絵と目盛り、★の目盛り。文字は曲名と巣の数だけ
@@ -2314,6 +2422,32 @@ function drawTiltHint(x, y) {   // スマホを左右に傾ける絵（傾けた
   ctx.globalAlpha = Math.min(1, Math.abs(a) / 0.3);
   ctx.beginPath(); ctx.moveTo(x, ay); ctx.lineTo(ax, ay); ctx.lineTo(ax - dir * 7, ay - 6); ctx.moveTo(ax, ay); ctx.lineTo(ax - dir * 7, ay + 6); ctx.stroke();
   ctx.globalAlpha = 1; ctx.lineCap = 'butt';
+}
+function drawChargeGlow() {   // ため：ハムスターのまわりが光る（ためるほど大きく明るく。マックスは、拍に合わせて脈打つ）
+  const r = ham.r, lv = charge.lv / C.CHARGE_STEPS, beat = Math.pow(1 - beatPhase(), 2), wait = charge.state === 'ready';
+  const R = r * (1.35 + 0.5 * lv + (lv >= 1 ? 0.12 * Math.sin(clock * 30) : 0)), a = wait ? 0.25 + 0.25 * beat : 0.3 + 0.45 * lv;
+  const g = ctx.createRadialGradient(ham.x, ham.y, r * 0.6, ham.x, ham.y, R);
+  g.addColorStop(0, `rgba(255,245,170,${a})`); g.addColorStop(1, 'rgba(255,220,120,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(ham.x, ham.y, R, 0, TAU); ctx.fill();
+}
+function drawChargeHint() {   // ため：押すのを待っている間は、ハムスターの横に、長押しする指の絵（文字なし）。押している間は、段数の輪
+  const VS = view.VS, hx = view.ox + ham.x * VS, hy = view.oy + ham.y * VS, rr = ham.r * VS, n = C.CHARGE_STEPS;
+  const ringR = rr * (1.25 + 0.06 * charge.lv) + 10;
+  if (charge.state !== 'ready' || charge.lv > 0) {   // 段数の輪：4つに分けて、たまった所が光る
+    for (let i = 0; i < n; i++) {
+      const a0 = -Math.PI / 2 + i * TAU / n + 0.08, a1 = a0 + TAU / n - 0.16, on = i < charge.lv;
+      ctx.strokeStyle = on ? (charge.lv >= n ? `rgba(255,240,120,${0.7 + 0.3 * Math.sin(clock * 30)})` : 'rgba(255,225,90,0.95)') : 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = on ? 7 : 4; ctx.lineCap = 'round'; ctx.beginPath(); ctx.arc(hx, hy, ringR, a0, a1); ctx.stroke(); ctx.lineCap = 'butt';
+    }
+  }
+  if (charge.state !== 'ready') return;
+  const ph = (performance.now() / 1000) % 1.6, press = ph > 0.25 && ph < 1.25, q = clamp((ph - 0.25) / 1.0, 0, 1);
+  const fx = hx + rr + 36, fy = hy + rr * 0.35 + 8;
+  if (press) {   // 押している間、輪がだんだん満ちる（長押し）
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(fx, fy, 22, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,230,110,0.95)'; ctx.beginPath(); ctx.arc(fx, fy, 22, -Math.PI / 2, -Math.PI / 2 + TAU * q); ctx.stroke();
+  }
+  drawHand(fx, fy, touchUI ? 1 : 1.05, press);
 }
 function drawStartHint() {
   const VS = view.VS, hx = view.ox + ham.x * VS, hy = view.oy + ham.y * VS, ph = (performance.now() / 1000) % 1.8, rr = ham.r * VS;
@@ -2521,17 +2655,51 @@ function paintNut(f, x, y, w, dim) {   // 両方伸びる物（種など）：�
   ctx.beginPath(); ctx.ellipse(x - w * 0.18, y + w * 0.08, w * 0.1, w * 0.06, -0.5, 0, TAU); ctx.fill();
   if (dim < 0.3) { const k = twinkle(f, 0.45, 0.12); if (k) sparkle(x - w * 0.18, y + w * 0.08, k * Math.max(5, w * 0.45)); }
 }
-function paintShell(f, x, y, w, dim) { // 硬い殻に入ったごちそう：割れ目から金色の中身が見える
-  const h2 = w / 2, i2 = w * 0.27;
+function paintShell(f, x, y, w, dim) { // 硬い殻に入ったごちそう：歯が足りない間は閉じた殻（細い割れ目だけ）。食べられるようになると「パカッ」と割れて、金色の中身が見える
+  const h2 = w / 2, o = f.open === false ? 0 : f.crack > 0 ? 1 - f.crack * f.crack : 1;   // o：割れて開いた具合（0 閉じている ～ 1 開いた）
   ctx.fillStyle = H(28, 56, 31, dim); ctx.fillRect(x - h2, y - h2, w, w);
   ctx.strokeStyle = H(25, 64, 18, dim); ctx.lineWidth = Math.max(1, w * 0.07);
   ctx.beginPath();
   ctx.moveTo(x - h2 * 0.8, y - h2 * 0.55); ctx.lineTo(x - h2 * 0.35, y - h2 * 0.8);
   ctx.moveTo(x + h2 * 0.45, y + h2 * 0.85); ctx.lineTo(x + h2 * 0.85, y + h2 * 0.4);
   ctx.stroke();
-  ctx.fillStyle = H(43, 100, 64, dim); ctx.fillRect(x - i2, y - i2 * 0.75, i2 * 2, i2 * 1.5);
-  ctx.fillStyle = H(50, 100, 85, dim); ctx.fillRect(x - i2 * 0.7, y - i2 * 0.5, i2 * 0.7, i2 * 0.45);
-  if (dim < 0.3) { const k = twinkle(f, 0.4, 0.16); if (k) sparkle(x + i2 * 0.4, y - i2 * 0.3, k * Math.max(5, w * 0.45)); }
+  const zig = (gw) => {   // まん中の、ぎざぎざの割れ目（上から下へ。幅 gw）
+    const n = 4, zz = w * 0.08; ctx.beginPath();
+    for (let i = 0; i <= n; i++) ctx.lineTo(x - gw / 2 + (i % 2 ? zz : -zz) * 0.6, y - h2 * 0.92 + i * h2 * 1.84 / n);
+    for (let i = n; i >= 0; i--) ctx.lineTo(x + gw / 2 + (i % 2 ? zz : -zz) * 0.6, y - h2 * 0.92 + i * h2 * 1.84 / n);
+    ctx.closePath(); ctx.fill();
+  };
+  if (o <= 0) { ctx.fillStyle = H(25, 64, 14, dim); zig(w * 0.07); ctx.fillStyle = H(43, 80, 45, dim); zig(w * 0.03); return; }   // 閉じた殻
+  ctx.fillStyle = H(25, 64, 14, dim); zig(w * (0.16 + 0.34 * o));                 // 割れ目のふち（暗い）
+  ctx.fillStyle = H(43, 100, 62, dim); zig(w * (0.1 + 0.3 * o));                  // 金色の中身
+  ctx.fillStyle = H(50, 100, 86, dim); ctx.fillRect(x - w * 0.06 * o, y - h2 * 0.5, w * 0.1 * o, h2 * 0.5);   // つや
+  if (dim < 0.3) { const k = twinkle(f, 0.4, 0.16); if (k) sparkle(x + w * 0.08, y - w * 0.12, k * Math.max(5, w * 0.45)); }
+}
+function drawTooth(cx, cy, s) {   // 小さな歯の絵（文字なし）：歯が足りない殻つきの上に
+  ctx.save(); ctx.translate(cx, cy);
+  ctx.fillStyle = 'rgba(40,28,18,0.55)'; ctx.beginPath(); ctx.arc(0, 0, s * 0.78, 0, TAU); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(-s * 0.48, -s * 0.3);
+  ctx.quadraticCurveTo(-s * 0.48, -s * 0.56, -s * 0.24, -s * 0.56); ctx.quadraticCurveTo(0, -s * 0.46, s * 0.24, -s * 0.56); ctx.quadraticCurveTo(s * 0.48, -s * 0.56, s * 0.48, -s * 0.3);
+  ctx.lineTo(s * 0.36, s * 0.42); ctx.quadraticCurveTo(s * 0.28, s * 0.6, s * 0.16, s * 0.4); ctx.lineTo(0, s * 0.06);
+  ctx.lineTo(-s * 0.16, s * 0.4); ctx.quadraticCurveTo(-s * 0.28, s * 0.6, -s * 0.36, s * 0.42);
+  ctx.closePath();
+  ctx.fillStyle = '#fffdf3'; ctx.fill(); ctx.lineWidth = Math.max(1, s * 0.1); ctx.strokeStyle = 'rgba(60,40,25,0.95)'; ctx.stroke();
+  ctx.restore();
+}
+function shellCrack(f) {   // 歯が育って、殻つきが食べられるようになった瞬間：「パカッ」と割れる音と、金色の光
+  f.crack = 1;
+  rings.push({ x: f.x, y: f.y, r0: f.w * 0.5, grow: 40 + f.w * 1.2, t: 0, life: 0.55, width: 6, color: '255,215,90' });
+  rings.push({ x: f.x, y: f.y, r0: f.w * 0.3, grow: 24 + f.w * 0.7, t: -0.05, life: 0.45, width: 3, color: '255,255,255' });
+  sparks.push({ x: f.x, y: f.y - f.w * 0.2, t: 0, life: 0.6, s: 8 + f.w * 0.3 });
+  if (!AC || !live()) return;
+  const t = slotTime('hard', AC.currentTime), b = curBus; curBus = null;
+  try {
+    noise(t, 0.025, 0.05, 'bandpass', 2600, 2.5); woodKnock(t, 620, 0.05);            // パカッ：乾いた短い音
+    noise(t + 0.018, 0.05, 0.028, 'bandpass', 1400, 2);
+    play(S.ev.sparkle, t + 0.05, 84 + S.key, 0.6, 0.018 * mx('sparkle')); play(S.ev.sparkle, t + 0.1, 91 + S.key, 0.6, 0.012 * mx('sparkle'));   // 中の金色の、きらっ
+  } finally { curBus = b; }
+  myNote(f.x, f.y, t, 'hard', 0.7);
 }
 
 // サビの特別な食べ物（ふつうの物と、形と色をはっきり変える。どれも、ほんのり光る）
@@ -2699,6 +2867,7 @@ function drawFoods() {
     paintFood(f, x, y, w, dim);
     ctx.globalAlpha = 1;
     if (dim < 0.5 && (f.look === 'gem' || f.look === 'shell')) { ctx.lineWidth = 1.2; ctx.strokeStyle = 'rgba(30,20,15,0.6)'; ctx.strokeRect(x - w / 2, y - w / 2, w, w); }
+    if (f.look === 'shell' && !f.edible && f.born >= 1 && f.h > ham.teeth + EPS) { const s = Math.max(w * 0.42, 13 / VS); drawTooth(x, y - w / 2 - s * 0.85 + Math.sin(clock * 3 + f.seed * 6) * s * 0.08, s); }   // 歯が足りない：殻の上に小さな歯の絵
     if (f.flash > 0) {
       const p = ((1.8 - f.flash) % 0.6) / 0.6, g = 3 + p * 20;
       ctx.strokeStyle = `rgba(255,240,120,${(1 - p)})`; ctx.lineWidth = 3.5;
@@ -2727,6 +2896,9 @@ function needBubble(f) {
   ctx.globalAlpha = 1;
 }
 
+// ほっぺの大きさ（体の半径の何倍か）と、つっぱり具合（0〜1。つや・ぷるぷる・目を細めるのに使う）
+const cheekSize = (puff, lv = 0) => { const e = Math.max(0, puff - 1); return Math.min(C.CHEEK_MAX, 0.42 + 0.36 * Math.min(e, 2.2) + 0.13 * Math.max(0, e - 2.2)) + C.CHEEK_PER_CHARGE * lv; };
+const cheekTension = s => clamp((s - 0.95) / 0.5, 0, 1);
 function drawHamster() {
   const r = ham.r * (1 + 0.18 * Math.sin(ham.pulse * Math.PI));
   ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(ham.x, ham.y + r * 0.2, r * 1.08, r * 0.92, 0, 0, TAU); ctx.fill();   // 足もとの影（巣の山の上でも見えるように）
@@ -2743,9 +2915,19 @@ function drawHamster() {
   ctx.rotate(ham.face);
   ctx.scale(1 + wob, 1 - wob * 0.8);
 
-  const items = (ham.pouch.length > POUCH_SHOW ? ham.pouch.slice(-POUCH_SHOW) : ham.pouch).map(it => {   // とても多いときは、新しい物だけ描く
-    const w = 1 + ham.cheekW[it.cheek][0];               // ぽよん
-    let lx = it.lx * (1 + (w - 1) * 0.5), ly = it.ly * (1 + (w - 1) * 0.6), sz = pouchSide(it) * Math.sqrt(it.left) * w;   // 消化した分だけ小さくなる
+  const cheeks = [-1, 1].filter(c => ham.pouch.some(it => it.cheek === c && it.fly > 0.6));
+  const ce = Math.max(0, ham.puff - 1), cs = cheekSize(ham.puff, charge.lv), tens = cheeks.length ? cheekTension(cs) : 0;
+  const cheekAt = c => {   // ほっぺ c（-1・1）の中心と半径：たまるほど、ぱんぱんに（ぱんぱんなほど、少しぷるぷる）
+    const wob = 1 + 0.035 * tens * Math.sin(clock * 23 + c * 1.7);
+    return [-r * (0.1 + 0.06 * tens), c * r * (0.55 + 0.12 * Math.min(2, ce) + 0.05 * Math.max(0, ce - 2)), r * cs * (1 + ham.cheekW[c][0]) * wob];
+  };
+  // 頬袋の中身：ほっぺの中に、ぎっしり詰める（古い物ほど、まん中。1つの大きさは、ほっぺの半径の半分まで。大きな物を食べても、ほっぺの丸い形が見えるように）
+  const shown = ham.pouch.length > POUCH_SHOW ? ham.pouch.slice(-POUCH_SHOW) : ham.pouch, per = { '-1': 0, '1': 0 }, cnt = { '-1': 0, '1': 0 };
+  for (const it of shown) cnt[it.cheek]++;
+  const items = shown.map(it => {   // とても多いときは、新しい物だけ描く
+    const w = 1 + ham.cheekW[it.cheek][0], [ax, ay, ar] = cheekAt(it.cheek), k = per[it.cheek]++, n = Math.max(6, cnt[it.cheek]);   // w：ぽよん
+    const a = k * 2.4 + it.seed * 6, rad = ar * 0.6 * Math.sqrt((k + 0.5) / n);
+    let lx = ax + Math.cos(a) * rad * w, ly = ay + Math.sin(a) * rad * w, sz = Math.min(pouchSide(it) * Math.sqrt(it.left) * w, ar * 0.5);   // 消化した分だけ小さくなる
     if (it.fly < 1) {
       const wx = it.fx - ham.x, wy = it.fy - ham.y, e = 1 - (1 - it.fly) * (1 - it.fly);
       lx = lerp(wx * cos + wy * sin, lx, e); ly = lerp(-wx * sin + wy * cos, ly, e);
@@ -2753,11 +2935,10 @@ function drawHamster() {
     }
     return { it, lx, ly, sz };
   });
-  const cheeks = [-1, 1].filter(c => ham.pouch.some(it => it.cheek === c && it.fly > 0.6));
   const skin = extra => {
     ctx.beginPath();
     for (const c of cheeks) {
-      const ar = r * (0.42 + 0.3 * Math.min(2.2, Math.max(0, ham.puff - 1))) * (1 + ham.cheekW[c][0]) + extra, ax = -r * 0.1, ay = c * r * (0.55 + 0.12 * Math.min(2, Math.max(0, ham.puff - 1)));   // 頬袋：たまるほど、ぱんぱんに
+      const [ax, ay, a0] = cheekAt(c), ar = a0 + extra;
       ctx.moveTo(ax + ar, ay); ctx.arc(ax, ay, ar, 0, TAU);
     }
     for (const p of items) {
@@ -2769,7 +2950,13 @@ function drawHamster() {
   };
   if (cheeks.length) {
     ctx.fillStyle = '#5b3a1e'; skin(2);
-    ctx.fillStyle = '#f6cf9e'; skin(0);
+    ctx.fillStyle = tens > 0 ? `rgb(${Math.round(246 + 6 * tens)},${Math.round(207 + 10 * tens)},${Math.round(158 + 22 * tens)})` : '#f6cf9e'; skin(0);   // つっぱるほど、皮が明るく
+    if (tens > 0) for (const c of cheeks) {   // つっぱった皮の、つや と、ほんのり赤み
+      const [ax, ay, ar] = cheekAt(c);
+      ctx.fillStyle = `rgba(255,150,150,${0.16 * tens})`; ctx.beginPath(); ctx.ellipse(ax, ay + c * ar * 0.15, ar * 0.62, ar * 0.5, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = `rgba(255,255,255,${0.55 * tens})`; ctx.beginPath(); ctx.ellipse(ax + ar * 0.32, ay - c * ar * 0.22, ar * 0.3, ar * 0.13, c * 0.5, 0, TAU); ctx.fill();
+      ctx.fillStyle = `rgba(255,255,255,${0.35 * tens})`; ctx.beginPath(); ctx.arc(ax + ar * 0.58, ay - c * ar * 0.02, ar * 0.06, 0, TAU); ctx.fill();
+    }
   }
   for (const p of items) {
     ctx.save(); ctx.translate(p.lx, p.ly); ctx.rotate(p.it.rot);
@@ -2800,11 +2987,20 @@ function drawHamster() {
       ctx.lineCap = 'butt';
       continue;
     }
-    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(ex, ey, er, 0, TAU); ctx.fill();
+    const sq = clamp(tens * 0.85 + charge.lv / 4 * 0.35, 0, 1);   // 目を細める（がんばってこらえている）
+    if (sq >= 0.8) {                                   // 「＞＜」：顔のまん中へ向けて、ぎゅっ
+      ctx.strokeStyle = '#3a2410'; ctx.lineWidth = Math.max(1.2, r * 0.08); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.moveTo(ex - er * 0.8, ey + s * er * 0.5); ctx.lineTo(ex, ey - s * er * 0.55); ctx.lineTo(ex + er * 0.8, ey + s * er * 0.5); ctx.stroke();
+      ctx.lineCap = 'butt'; ctx.lineJoin = 'miter';
+      continue;
+    }
+    ctx.save(); ctx.translate(ex, ey); ctx.scale(1 - 0.62 * sq, 1);   // 細めた目（顔の前後の向きに、つぶす）
+    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(0, 0, er, 0, TAU); ctx.fill();
     ctx.lineWidth = Math.max(0.6, r * 0.04); ctx.strokeStyle = '#5b3a1e'; ctx.stroke();
-    const qx = ex + (look === 1 ? lx : 0.4) * er * 0.42, qy = ey + (look === 1 ? ly : 0) * er * 0.42;
+    const qx = (look === 1 ? lx : 0.4) * er * 0.42 * (1 - sq), qy = (look === 1 ? ly : 0) * er * 0.42;
     ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(qx, qy, pr, 0, TAU); ctx.fill();
     ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(qx - pr * 0.35, qy - pr * 0.35, pr * 0.32, 0, TAU); ctx.fill();
+    ctx.restore();
   }
   ctx.fillStyle = '#e86a7a';
   ctx.beginPath(); ctx.arc(r * 0.86, 0, Math.max(1, r * 0.1), 0, TAU); ctx.fill();
@@ -2843,14 +3039,17 @@ function helpHTML() {
     '暗い物は、まだ食べられない。当たると吹き出しに、足りない方の絵が出る（果物＝大きさ、宝石＝歯）',
     C.PALS ? '広場で待っているバンドの仲間に会いに行くと、その仲間の楽器が加わって、後ろをついて歩く（果物の道をたどると会える。画面の外にいるときは、端に矢印）' : '体と歯が育つと、下のバンドの仲間が1人ずつ加わる（オレンジ＝果物で育つ楽器、青＝宝石で育つ楽器）',
     '「ため」のあとのサビは食べ放題。頬袋の中の数が、上の★の目盛りを満たしていく（' + C.STARS.map((t, i) => `★${i + 1}：${t}個`).join('、') + '）',
-    '曲の最後に、頬袋の中身を巣へ噴き出して、宝の山になる。山は大きくなると姿が変わる',
+    C.CHARGE ? '曲の最後（締め）は、長押しでためて（拍ごとにぐっと寄る）、離すと頬袋の中身を巣へどばーっと噴き出して、宝の山になる。山は大きくなると姿が変わる'
+      : '曲の最後に、頬袋の中身を巣へ噴き出して、宝の山になる。山は大きくなると姿が変わる',
     '宝石の列は、列ごとに違うフレーズになる（仲間がいれば、その仲間の楽器で）。かたまりは和音。果物は流れに並んでいて、1つの流れがベースのフレーズになり、食べ切ると「ドン」。テーマのメロディは、曲の締めでバンドが演奏する',
     '食べている間だけバンドが厚くなる（食べるのをやめると、1小節で薄くなる）。サビで空から降る特別な食べ物は、サビに入ったときの体と歯の育ち方で変わる（体が大きい＝大きな実、歯が硬い＝結晶、両方＝両方と虹の実）'];
-  const keys = touchUI ? ['指を置いた方へ走る', '「スタートへ」：スタート地点に戻る', '「曲を最初から」：2回押すと、この曲を最初から', '「音量」：音量', '⏸：一時停止（つづける・最初から・曲をえらぶ）'] :
+  const keys = touchUI ? ['指を置いた方へ走る', '「スタートへ」：スタート地点に戻る', '「曲を最初から」：2回押すと、この曲を最初から', '「音量」：音量', '⏸：一時停止（つづける・最初から・曲をえらぶ）',
+    C.CHARGE ? '締め：画面のどこかを長押しでためて、離すと噴き出す' : '締め：自動で噴き出す（ためOFF）'] :
     [`${k('W A S D')} ${k('矢印')}：移動　マウス：押している間、その方へ走る`, `${k('R')}：スタート地点へ（長押しで、この曲を最初から）`,
      `${k('M')}：食べ方（いま ${eatMode}。A＝Space で食べる、B＝触れたら食べる）`, `${k('N')}：音楽／効果音（いま ${soundMode === 'music' ? '音楽' : '効果音'}）`,
      `${k('Esc')}：一時停止（つづける・最初から・曲をえらぶ）`, `${k('K')}：当たった物が動く（いま ${on(C.PUSH)}）　${k('J')}：かたまりの連鎖の吸い込み（いま ${on(C.CHAIN)}）`,
      `${k('V')}：演奏（いま ${C.PLAY ? '演奏ON' : '演奏OFF'}。食べている間だけ伴奏が厚くなる・鳴った音が光る）　${k('B')}：サビの特別な食べ物（いま ${C.SPECIAL ? '特別ON' : '特別OFF'}）`,
+     `${k('L')}：締めのため（いま ${C.CHARGE ? 'ためON。マウスのボタンかスペースを長押しでためて、離すと噴き出す' : 'ためOFF。締めで自動で噴き出す'}）`,
      `${k('P')}：バンドの仲間（いま ${C.PALS ? '仲間ON。会いに行くと楽器が増える' : '仲間OFF。体と歯が育つと楽器が増える'}）`,
      `${k('-')} ${k('=')}：全体の音量　${k('[')} ${k(']')}：音楽　${k(',')} ${k('.')}：効果音`, `${k('H')}：この説明（${k('Esc')} でもとじる）`];
   return '<h4>どうなればいい？</h4><ul>' + rules.map(r => `<li>${r}</li>`).join('') + '</ul><h4>操作</h4><ul>' + keys.map(r => `<li>${r}</li>`).join('') + '</ul>';
@@ -2906,10 +3105,11 @@ document.getElementById('rWipe').onclick = () => {    // 保存を消して1曲�
 let paused = false, resumedAt = -1e9;
 function pauseGame() {
   if (paused || !C.PAUSE_ON_BLUR) return;
-  paused = true;
+  paused = true; chargeHoldPause();
   input.up = input.down = input.left = input.right = input.eat = input.rHeld = false; ptr.down = false; ptr.id = null;
   if (AC && AC.state === 'running') AC.suspend().catch(() => {});
 }
+function chargeHoldPause() { if (charge.state === 'hold') { charge.state = 'ready'; charge.wait = 0; charge.needUp = false; } }   // 押していた「ため」は、ためた段数のまま待つ
 function resumeGame() {
   if (!paused) return;
   paused = false; resumedAt = performance.now();
@@ -2927,6 +3127,7 @@ function openPause() {
   if (menuOpen || songOver || helpOpen) return;
   menuOpen = true; menuFocus = 0;
   if (!paused) { paused = true; input.up = input.down = input.left = input.right = input.eat = input.rHeld = false; ptr.down = false; ptr.id = null; audioHush(); }
+  chargeHoldPause();
   renderPause(); $id('pause').hidden = false;
 }
 function closePause() {   // 止めた所から、つづける
@@ -3002,6 +3203,10 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyV' && !e.repeat) togglePlay();      // 演奏：自分が鳴らしているとわかる仕組み
   if (e.code === 'KeyP' && !e.repeat) togglePals();      // バンドの仲間
   if (e.code === 'KeyB' && !e.repeat) { C.SPECIAL = !C.SPECIAL; say(C.SPECIAL ? '特別ON' : '特別OFF', '#ffffff', 3); }   // サビの特別な食べ物
+  if (e.code === 'KeyL' && !e.repeat) {               // 締めの「ため」（OFF：今までどおり、着地で自動で噴き出す）
+    C.CHARGE = !C.CHARGE; say(C.CHARGE ? 'ためON' : 'ためOFF', '#ffffff', 3);
+    if (!C.CHARGE && chargeHolding() && song.part === 'finale' && !song.burst) charge.state = 'off';
+  }
   if (e.code === 'KeyM' && !e.repeat && !touchUI) {   // スマホは食べ方Bで固定
     eatMode = eatMode === 'A' ? 'B' : 'A';
     say(eatMode === 'A' ? '食べ方A' : '食べ方B', '#ffffff', 3);
@@ -4041,7 +4246,7 @@ function musicTick() {
   const now = AC.currentTime;
   if (mus.next < now - 0.05) { mus.step = gridIdx(now, 1); mus.next = T16(mus.step); }   // 止まっていた分はとばす
   curBus = musicBus;            // 背景の音楽は「音楽」の音量を通す
-  try { while (mus.next < now + 0.15) { playStep(mus.step, mus.next); mus.step++; mus.next = T16(mus.step); } }
+  try { while (mus.next < now + 0.15) { if (chargeLive() && charge.state !== 'go' && mus.step >= landingStep()) shiftSong(-barSec()); playStep(mus.step, mus.next); mus.step++; mus.next = T16(mus.step); } }
   finally { curBus = null; }
 }
 // 演奏：伴奏の「勢い」（どの場面でも）。食べると上がり（1つで DRIVE_PER_EAT）、最後に食べてから DRIVE_HOLD 拍はそのまま、そのあと DRIVE_FADE 拍で 0 へ
@@ -4082,9 +4287,10 @@ function playFinale(k, t, j) {
     if (j === 0) for (const pt of F.hit) playPart(pt, k, t, 1, ch);
     const dv = driveAt(t), D = lerp(C.DRIVE_FINALE_MIN, 1, dv), keep = lerp(C.DRIVE_KEEP, 1, dv);   // 演奏：テーマの間のバンドも、勢いで厚さが変わる（テーマのメロディはそのまま）
     for (const pt of (j === 0 && L === 2 ? F.roll : F.band)) playPart(pt, k, t, BEAT.test(pt[0]) ? keep : D, ch);
-    if (j === L - 1) for (const pt of F.fill) playPart(pt, k, t, 1, ch);
+    if (j === L - 1 && !(chargeLive() && charge.state !== 'go')) for (const pt of F.fill) playPart(pt, k, t, 1, ch);   // ためON：くり返している間は、フィルを鳴らさない
   }
   if (k === land) {                                    // 着地：テーマの最後の音（主音）と主音の和音。「ぽんっ」と重ねる（「ぽんっ」は効果音の音量で）
+    if (charge.log) charge.log.land = { audio: +t.toFixed(3) };
     hits(S.theme.land, 72 + S.key, t, 1, CH.fin.land, 0, true);
     const b = curBus; curBus = null; popSound(t); curBus = b;
   }
@@ -4107,7 +4313,7 @@ function riser(t, end) {         // ため：サビの頭（end）へ向けて�
 // ---------------- 動作確認用の自動プレイ ----------------
 // URL に ?bot を付けると自動で遊ぶ（?bot&speed=10 で早回し）。
 // コンソールで simulate() を呼ぶと画面を使わずに1曲を最後まで遊んで、結果を返す（数値調整の目安用）。
-const bot = { target: null, plan: null, planT: 0, ban: new Map(), lean: null, leanK: 2 };   // lean：確かめ用に、体寄り（'B'）・歯寄り（'T'）に育てる（leanK：寄せる強さ）
+const bot = { target: null, plan: null, planT: 0, ban: new Map(), lean: null, leanK: 2, charging: false };   // lean：確かめ用に、体寄り（'B'）・歯寄り（'T'）に育てる（leanK：寄せる強さ）
 const GRID = 10, GW = Math.ceil(C.FIELD_W / GRID), GH = Math.ceil(C.FIELD_H / GRID);
 function botPlan(f) {             // 目標までの距離マップ（食べられないものを避けた格子の上で幅優先探索）
   const blocked = new Uint8Array(GW * GH), dist = new Int32Array(GW * GH).fill(-1);
@@ -4159,6 +4365,12 @@ function botPick() {
 function botThink(dt) {
   input.up = input.down = input.left = input.right = input.eat = false;
   if (songOver || song.burst) return;
+  if (C.CHARGE && chargeLive()) {                       // ため：合図から1拍待って長押し。マックスで1拍こらえてから離す
+    if (charge.state === 'ready' && charge.wait >= 1) bot.charging = true;
+    if (bot.charging && charge.lv >= C.CHARGE_STEPS && charge.maxBeats >= 1) bot.charging = false;
+    input.charge = bot.charging;
+    if (bot.charging) return;
+  }
   const tgOk = t => t && (t.pal ? t.pal.state === 'wait' : foods.includes(t) && t.edible && !t.suck);
   if (bot.target && bot.target.pal) {                   // 仲間へ向かって6秒たっても会えない：少し寄り道してから、また向かう
     if (!bot.palSince) bot.palSince = clock;
