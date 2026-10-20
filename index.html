@@ -43,7 +43,7 @@
   #result .up { color: #fff27a; font-size: 16px; margin: 4px 0; }
   #result .nest { display: flex; align-items: center; gap: 8px; justify-content: center; font-size: 13px; color: #ffd98a; margin: 6px 0; flex-wrap: wrap; }
   #result .nbar { width: 110px; height: 8px; background: #444; border-radius: 4px; overflow: hidden; } #result .nbar i { display: block; height: 100%; background: #e8b830; }
-  #rList .st { color: #ffd84a; letter-spacing: 1px; } #rList .st .off { color: #666; }
+  .slist .st { color: #ffd84a; letter-spacing: 1px; } .slist .st .off { color: #666; }
   #result .best .on { color: #ffd84a; } #result .best .off { color: #666; }
   /* 「？」のボタンと、遊び方の説明（ふだんは隠す） */
   .helpBtn { position: fixed; right: 10px; bottom: 6px; z-index: 4; width: 38px; height: 38px; border-radius: 19px; font-size: 18px; padding: 0; }
@@ -58,18 +58,31 @@
   #help ul { margin: 4px 0; padding-left: 20px; } #help li { margin: 3px 0; line-height: 1.5; }
   #help kbd { display: inline-block; min-width: 18px; padding: 0 5px; border: 1px solid #888; border-radius: 4px; background: #333; font: 600 12px monospace; text-align: center; }
   #help .close { display: block; margin: 12px auto 0; height: 38px; padding: 0 26px; }
-  #vol .trow button { width: auto; padding: 0 10px; font-size: 13px; }
   #result .pick { color: #ccc; font-size: 13px; margin: 12px 0 6px; }
-  #rList { display: grid; gap: 6px; }
-  #rList button { height: auto; min-height: 40px; padding: 6px 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left; font-size: 14px; }
-  #rList button small { color: #bbb; font-weight: 400; font-size: 12px; white-space: nowrap; }
-  #rList button.new { min-height: 54px; font-size: 17px; background: #6b5a14; border-color: #ffd95a; }
-  #rList button.new small { color: #ffe9a0; }
-  #rList button.focus { outline: 3px solid #fff; outline-offset: 1px; }
+  .slist { display: grid; gap: 6px; }
+  .slist button { height: auto; min-height: 40px; padding: 6px 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left; font-size: 14px; }
+  .slist button small { color: #bbb; font-weight: 400; font-size: 12px; white-space: nowrap; }
+  .slist button.new { min-height: 54px; font-size: 17px; background: #6b5a14; border-color: #ffd95a; }
+  .slist button.new small { color: #ffe9a0; }
+  .slist button.focus, #pause button.focus { outline: 3px solid #fff; outline-offset: 1px; }
+  /* 一時停止の画面（Esc・スマホは ⏸ ボタン）：画面を少し暗くして、まん中に「つづける」「最初から」と曲の一覧 */
+  #pause { position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 6; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; }
+  #pause .pbox { background: rgba(0,0,0,0.84); color: #eee; border-radius: 14px; padding: 16px 18px 14px; width: min(440px, calc(100vw - 32px)); max-height: calc(100vh - 16px);
+    overflow-y: auto; overflow-x: hidden; box-sizing: border-box; text-align: center; font: 600 15px "Yu Gothic UI", "Hiragino Sans", "Meiryo", sans-serif; }
+  #pause .ptl { font-size: 22px; margin-bottom: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  #pause .pbtns { display: grid; gap: 8px; }
+  #pause .pbtns button { height: 52px; font-size: 18px; display: flex; align-items: center; justify-content: center; gap: 10px; }
+  #pause button.go { background: #2e5228; border-color: #8fe07a; }   /* つづける：緑 */
+  #pause button.re { background: #553620; border-color: #e0a070; }   /* 最初から：茶色 */
+  #pause .pick { color: #ccc; font-size: 13px; margin: 14px 0 6px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+  #pause .hint { color: #aaa; font-weight: 400; font-size: 12px; margin-top: 8px; }
+  .pauseBtn { width: 38px; padding: 0; display: flex; align-items: center; justify-content: center; }
   @media (max-height: 480px) {   /* 横向きのスマホ：詰めて、2列に */
     #result { top: 8px; transform: translateX(-50%); padding: 10px 12px; width: min(640px, calc(100vw - 24px)); font-size: 13px; }
     #result .ttl { font-size: 17px; margin-bottom: 2px; } #result .big { font-size: 17px; margin: 2px 0; } #result .pick { margin: 6px 0 4px; }
-    #rList { grid-template-columns: 1fr 1fr; } #rList button, #rList button.new { min-height: 36px; font-size: 14px; } #rList button.new { grid-column: 1 / -1; }
+    .slist { grid-template-columns: 1fr 1fr; } .slist button, .slist button.new { min-height: 36px; font-size: 14px; } .slist button.new { grid-column: 1 / -1; }
+    #pause .pbox { padding: 10px 12px; width: min(640px, calc(100vw - 24px)); } #pause .ptl { font-size: 17px; margin-bottom: 6px; }
+    #pause .pbtns { grid-template-columns: 1fr 1fr; } #pause .pbtns button { height: 42px; font-size: 16px; } #pause .pick { margin: 8px 0 4px; }
   }
   #result .hint { color: #aaa; font-weight: 400; font-size: 12px; margin-top: 8px; }
   #result button.wipe { height: 30px; font-size: 12px; margin-top: 12px; background: rgba(70,40,40,0.9); border-color: #a77; }
@@ -79,13 +92,21 @@
 <body>
 <canvas id="c"></canvas>
 <div class="pad L" id="padL" hidden><button id="bWarp">スタートへ</button><button id="bReset">最初から</button></div>
-<div class="pad R" id="padR" hidden><button id="bCtrl" class="ctrl" aria-label="操作"></button><button id="bVol">音量</button></div>
+<div class="pad R" id="padR" hidden><button id="bPause" class="pauseBtn" aria-label="一時停止"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><rect x="3" y="2" width="4.4" height="14" rx="1.2" fill="currentColor"/><rect x="10.6" y="2" width="4.4" height="14" rx="1.2" fill="currentColor"/></svg></button><button id="bCtrl" class="ctrl" aria-label="操作"></button><button id="bVol">音量</button></div>
 <button class="helpBtn" id="bHelp" title="遊び方（H）">？</button>
 <div id="help" hidden><div class="hbox"><div class="htitle">遊び方</div><div id="hBody"></div><button class="close" id="hClose">とじる</button></div></div>
 <div id="vol" hidden></div>
 <div id="result" hidden><div class="ttl" id="rTitle"></div><div class="stars" id="rStars"></div><div class="big" id="rGain"></div><div class="best" id="rBest"></div>
   <div class="up" id="rUp"></div><div class="nest"><span id="rNest"></span><span class="nbar"><i id="rNbar"></i></span><span id="rNext"></span></div>
-  <div class="pick">次の曲</div><div id="rList"></div><div class="hint" id="rHint"></div><button class="wipe" id="rWipe">巣と曲を最初からにする</button></div>
+  <div class="pick">次の曲</div><div id="rList" class="slist"></div><div class="hint" id="rHint"></div><button class="wipe" id="rWipe">巣と曲を最初からにする</button></div>
+<div id="pause" hidden><div class="pbox">
+  <div class="ptl"><svg width="22" height="22" viewBox="0 0 18 18" aria-hidden="true"><rect x="3" y="2" width="4.4" height="14" rx="1.2" fill="#ffe14a"/><rect x="10.6" y="2" width="4.4" height="14" rx="1.2" fill="#ffe14a"/></svg>一時停止</div>
+  <div class="pbtns">
+    <button id="pGo" class="go"><svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><path d="M5 3 L19 11 L5 19 Z" fill="#b8ff9a"/></svg>つづける</button>
+    <button id="pRe" class="re"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5a7.5 7.5 0 1 1-7 4.8" fill="none" stroke="#ffcf9a" stroke-width="2.6" stroke-linecap="round"/><path d="M1.8 5.2 L4.6 11 L9.6 7.6 Z" fill="#ffcf9a"/></svg>最初から</button>
+  </div>
+  <div class="pick"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 2.2 L13.5 1 V10.6 A2.3 2.3 0 1 1 12 8.5 V4 L8 4.7 V12.2 A2.3 2.3 0 1 1 6.5 10.1 Z" fill="#ffd98a"/></svg>曲をえらぶ</div>
+  <div id="pList" class="slist"></div><div class="hint" id="pHint"></div></div></div>
 <script>
 'use strict';
 // ============================================================
@@ -843,9 +864,18 @@ function finishSong() {
   showResult();
 }
 function nextSong(i = song.pick) { song.n++; song.idx = SONGS[i] ? i : 0; saveNow(song.n - 1, song.idx); reset(); }
+// 曲の途中でやめて、i の曲を最初から（一時停止の画面の「最初から」・曲の一覧、R の長押し、スマホの「曲を最初から」）
+//   この曲で巣に着いた宝（締めの途中でやめたとき）は戻す。自己ベスト・遊んだ曲の記録・曲数は変えない。次に開いたときは i の曲から
+function abortSong(i = song.idx) {
+  if (song.nest0) { nest = JSON.parse(song.nest0); pileCanvas = null; }
+  song.idx = SONGS[i] ? i : 0;
+  saveNow(song.n - 1, song.idx);
+  reset();
+}
 function wipeSave() { song.n = 1; song.idx = 0; played = []; best = {}; nest = { total: 0, gem: 0, soft: 0, nut: 0, shell: 0 }; saveNow(0, 0); pileCanvas = null; reset(); }
 
 function reset() {
+  song.nest0 = JSON.stringify(nest);   // 曲の始まりの巣（途中でやめたら、ここへ戻す）
   S = SONGS[song.idx] || SONGS[0]; makePlan(); tuneSong();   // この曲の設計図：場面の長さ・和音・はね具合・テーマの音
   foods = []; respawns = []; floats = []; rings = []; sparks = []; flyers = []; LOG = []; groups = {};
   if (touchUI) eatMode = 'B';          // スマホは食べ方B（触れたら全部食べる）で固定
@@ -1891,7 +1921,7 @@ function update(dt) {
   // R の長押し：この曲を最初から
   if (input.rHeld) {
     input.rTime += dt;
-    if (input.rTime >= C.R_HOLD_SEC) { input.rHeld = false; reset(); }
+    if (input.rTime >= C.R_HOLD_SEC) { input.rHeld = false; abortSong(); }
   }
 
   for (const it of ham.pouch) {
@@ -2093,7 +2123,7 @@ function render() {
   const rx0 = between ? (padL.offsetWidth || 0) + 18 : PAD + 2, rx1 = between ? W - (padR.offsetWidth || 0) - 18 : W - PAD - 2 - (touchUI ? 0 : 46);
   drawBottom(rx0, rx1, rowY);
   drawMsg(ax, ay, aw, ah);
-  if (paused && !helpOpen) {                             // 一時停止（曲の時計も止まっている）。触れる・キーで続きから
+  if (paused && !helpOpen && !menuOpen) {                // 一時停止（ほかの画面に切り替えたとき。曲の時計も止まっている）。触れる・キーで続きから
     const py = songOver ? ay + 40 : ay + ah / 2;
     ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(0, 0, W, H);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
@@ -2816,10 +2846,10 @@ function helpHTML() {
     '曲の最後に、頬袋の中身を巣へ噴き出して、宝の山になる。山は大きくなると姿が変わる',
     '宝石の列は、列ごとに違うフレーズになる（仲間がいれば、その仲間の楽器で）。かたまりは和音。果物は流れに並んでいて、1つの流れがベースのフレーズになり、食べ切ると「ドン」。テーマのメロディは、曲の締めでバンドが演奏する',
     '食べている間だけバンドが厚くなる（食べるのをやめると、1小節で薄くなる）。サビで空から降る特別な食べ物は、サビに入ったときの体と歯の育ち方で変わる（体が大きい＝大きな実、歯が硬い＝結晶、両方＝両方と虹の実）'];
-  const keys = touchUI ? ['指を置いた方へ走る', '「スタートへ」：スタート地点に戻る', '「曲を最初から」：2回押すと、この曲を最初から', '「音量」：音量と、テーマの候補の切り替え'] :
+  const keys = touchUI ? ['指を置いた方へ走る', '「スタートへ」：スタート地点に戻る', '「曲を最初から」：2回押すと、この曲を最初から', '「音量」：音量', '⏸：一時停止（つづける・最初から・曲をえらぶ）'] :
     [`${k('W A S D')} ${k('矢印')}：移動　マウス：押している間、その方へ走る`, `${k('R')}：スタート地点へ（長押しで、この曲を最初から）`,
      `${k('M')}：食べ方（いま ${eatMode}。A＝Space で食べる、B＝触れたら食べる）`, `${k('N')}：音楽／効果音（いま ${soundMode === 'music' ? '音楽' : '効果音'}）`,
-     `${k('T')}：テーマの候補を切り替える（いま ${themeIdx + 1}「${C.THEMES[themeIdx].name}」）`, `${k('K')}：当たった物が動く（いま ${on(C.PUSH)}）　${k('J')}：かたまりの連鎖の吸い込み（いま ${on(C.CHAIN)}）`,
+     `${k('Esc')}：一時停止（つづける・最初から・曲をえらぶ）`, `${k('K')}：当たった物が動く（いま ${on(C.PUSH)}）　${k('J')}：かたまりの連鎖の吸い込み（いま ${on(C.CHAIN)}）`,
      `${k('V')}：演奏（いま ${C.PLAY ? '演奏ON' : '演奏OFF'}。食べている間だけ伴奏が厚くなる・鳴った音が光る）　${k('B')}：サビの特別な食べ物（いま ${C.SPECIAL ? '特別ON' : '特別OFF'}）`,
      `${k('P')}：バンドの仲間（いま ${C.PALS ? '仲間ON。会いに行くと楽器が増える' : '仲間OFF。体と歯が育つと楽器が増える'}）`,
      `${k('-')} ${k('=')}：全体の音量　${k('[')} ${k(']')}：音楽　${k(',')} ${k('.')}：効果音`, `${k('H')}：この説明（${k('Esc')} でもとじる）`];
@@ -2856,9 +2886,10 @@ function showResult() {
   showChoices();
   $id('result').hidden = false;
 }
-function showChoices() {   // 選べる曲：遊んだことのある曲と、次の新しい曲（いちばん目立たせる）。白いわくが、いま選んでいる曲
+function showChoices() { $id('rList').innerHTML = choiceHTML(song.pick); }   // 結果の画面の、次の曲の一覧
+function choiceHTML(focus) {   // 選べる曲：遊んだことのある曲と、次の新しい曲（いちばん目立たせる）。白いわくが、いま選んでいる曲（一時停止の画面でも同じ）
   const nw = newSong();
-  $id('rList').innerHTML = choices().map(i => `<button data-i="${i}" class="${i === nw ? 'new' : ''}${i === song.pick ? ' focus' : ''}">` +
+  return choices().map(i => `<button data-i="${i}" class="${i === nw ? 'new' : ''}${i === focus ? ' focus' : ''}">` +
     `<span>${i + 1}. ${SONGS[i].name}</span><small>${i === nw ? '新曲！' : best[i] ? `<span class="st">${starHTML(best[i].stars)}</span> ${best[i].n}` : ''}</small></button>`).join('');
 }
 function movePick(d) { const list = choices(), i = list.indexOf(song.pick); song.pick = list[clamp((i < 0 ? 0 : i) + d, 0, list.length - 1)]; showChoices(); }
@@ -2886,7 +2917,50 @@ function resumeGame() {
 }
 addEventListener('blur', pauseGame);
 document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); });
-for (const type of ['pointerdown', 'keydown']) addEventListener(type, e => { if (!paused || helpOpen) return; resumeGame(); e.stopImmediatePropagation(); if (e.cancelable) e.preventDefault(); }, true);
+for (const type of ['pointerdown', 'keydown']) addEventListener(type, e => { if (!paused || helpOpen || menuOpen) return; resumeGame(); e.stopImmediatePropagation(); if (e.cancelable) e.preventDefault(); }, true);
+// 一時停止の画面（Esc・スマホは ⏸ ボタン）：ゲームと音楽を止める（音は、すっと小さくしてから止める）。画面は少し暗く
+//   「つづける」（Esc でも）：止めた所から ／「最初から」：この曲を最初から ／ 曲の一覧（結果の画面と同じ）：その曲を最初から
+//   選び方は結果の画面と同じ（パソコンは ↑↓ と Enter、またはマウス。スマホはタップ）。結果の画面が出ているときは、出さない
+let menuOpen = false, menuFocus = 0, hushT = 0;
+const menuItems = () => ['go', 're', ...choices()];
+function openPause() {
+  if (menuOpen || songOver || helpOpen) return;
+  menuOpen = true; menuFocus = 0;
+  if (!paused) { paused = true; input.up = input.down = input.left = input.right = input.eat = input.rHeld = false; ptr.down = false; ptr.id = null; audioHush(); }
+  renderPause(); $id('pause').hidden = false;
+}
+function closePause() {   // 止めた所から、つづける
+  if (!menuOpen) return;
+  menuOpen = false; $id('pause').hidden = true;
+  paused = false; resumedAt = performance.now(); audioWake();
+}
+function pauseDo(a) {   // a：'go'（つづける）・'re'（最初から）・曲の番号
+  if (a === 'go') return closePause();
+  closePause();
+  abortSong(a === 're' ? song.idx : a);
+}
+function renderPause() {
+  const f = menuItems()[menuFocus];
+  $id('pGo').classList.toggle('focus', f === 'go'); $id('pRe').classList.toggle('focus', f === 're');
+  $id('pList').innerHTML = choiceHTML(typeof f === 'number' ? f : -1);
+  $id('pHint').textContent = touchUI ? '' : '↑↓ ＋ Enter　　Esc：つづける';
+}
+function audioHush() {   // 音を、すっと小さくしてから止める（0.25秒）
+  if (!AC || !master) return;
+  const g = master.gain, t = AC.currentTime;
+  g.cancelScheduledValues(t); g.setValueAtTime(Math.max(0.0001, g.value), t); g.setTargetAtTime(0.0001, t, 0.05);
+  clearTimeout(hushT); hushT = setTimeout(() => { if (paused && AC.state === 'running') AC.suspend().catch(() => {}); }, 250);
+}
+function audioWake() {   // 止めた音を戻す（すっと大きく）
+  clearTimeout(hushT);
+  if (!AC || !master) return;
+  const up = () => { const g = master.gain, t = AC.currentTime; g.cancelScheduledValues(t); g.setValueAtTime(Math.max(0.0001, g.value), t); g.setTargetAtTime(C.SOUND_VOLUME * lv(vol.all), t, 0.04); };
+  if (AC.state === 'suspended') AC.resume().then(up).catch(() => {}); else up();
+}
+$id('pGo').onclick = () => pauseDo('go');
+$id('pRe').onclick = () => pauseDo('re');
+$id('pList').addEventListener('click', e => { const b = e.target.closest('button'); if (b) pauseDo(+b.dataset.i); });
+$id('bPause').onclick = () => (menuOpen ? closePause() : openPause());
 
 // ---------------- 入力 ----------------
 const KEYMAP = {
@@ -2896,6 +2970,15 @@ const KEYMAP = {
 addEventListener('keydown', e => {
   audioInit();
   if (helpOpen) { if (e.code === 'KeyH' || e.code === 'Escape') { e.preventDefault(); closeHelp(); } return; }   // 説明を開いている間は、とじるだけ
+  if (menuOpen) {                                     // 一時停止の画面：↑↓ で選んで Enter（Space でも）。Esc でつづける
+    const d = { ArrowUp: -1, ArrowLeft: -1, KeyW: -1, KeyA: -1, ArrowDown: 1, ArrowRight: 1, KeyS: 1, KeyD: 1 }[e.code];
+    if (d) { e.preventDefault(); if (!e.repeat) { menuFocus = clamp(menuFocus + d, 0, menuItems().length - 1); renderPause(); } return; }
+    if ((e.code === 'Enter' || e.code === 'Space') && !e.repeat) { e.preventDefault(); pauseDo(menuItems()[menuFocus]); return; }
+    if (e.code === 'Escape' && !e.repeat) { e.preventDefault(); closePause(); return; }
+    const vk = VOL_KEYS[e.key] || VOL_CODES[e.code]; if (vk) { e.preventDefault(); changeVol(vk[0], vk[1]); }
+    return;
+  }
+  if (e.code === 'Escape' && !e.repeat) { e.preventDefault(); if (!songOver) openPause(); return; }   // 一時停止（結果の画面では、何もしない）
   if (e.code === 'KeyH' && !e.repeat) { openHelp(); return; }
   if (songOver && !e.repeat) {                        // 結果の画面：曲を選ぶ
     const d = { ArrowUp: -1, ArrowLeft: -1, KeyW: -1, KeyA: -1, ArrowDown: 1, ArrowRight: 1, KeyS: 1, KeyD: 1 }[e.code];
@@ -2914,7 +2997,6 @@ addEventListener('keydown', e => {
     if (soundMode === 'music') musicStart(); else musicStop();
     say(soundMode === 'music' ? '音楽' : '効果音', '#ffffff', 3);
   }
-  if (e.code === 'KeyT' && !e.repeat) toggleTheme();   // テーマの候補
   if (e.code === 'KeyK' && !e.repeat) { C.PUSH = !C.PUSH; say(C.PUSH ? '押す ON' : '押す OFF', '#ffffff', 3); }       // 当たった物が動く
   if (e.code === 'KeyJ' && !e.repeat) { C.CHAIN = !C.CHAIN; say(C.CHAIN ? '連鎖 ON' : '連鎖 OFF', '#ffffff', 3); }    // かたまりの連鎖の吸い込み
   if (e.code === 'KeyV' && !e.repeat) togglePlay();      // 演奏：自分が鳴らしているとわかる仕組み
@@ -2973,7 +3055,7 @@ $id('hClose').onclick = () => closeHelp();
 $id('help').addEventListener('pointerdown', e => { if (e.target === $id('help')) closeHelp(); });   // 説明の外に触れても、とじる
 function setTouchUI() {
   touchUI = true; padL.hidden = padR.hidden = false; volEl.classList.add('touch');
-  padR.appendChild(bHelp);
+  padR.appendChild(bHelp); padR.appendChild($id('bPause'));   // 右下の隅：… ？ ⏸（一時停止は、いちばん隅に）
   eatMode = 'B';
   updatePad();
   updateCtrlBtn();
@@ -2983,7 +3065,7 @@ function setTouchUI() {
 document.getElementById('bWarp').onclick = () => { if (!songOver && !freshResume()) warpToStart(); };
 bReset.onclick = () => {                               // この曲を最初から：まちがえて押さないよう、もう一度押したらやり直す
   if (freshResume()) return;
-  if (resetArm > clock) { resetArm = 0; reset(); } else resetArm = clock + 2.5;
+  if (resetArm > clock) { resetArm = 0; if (songOver) reset(); else abortSong(); } else resetArm = clock + 2.5;
   updatePad();
 };
 document.getElementById('bVol').onclick = () => { if (!volEl.hidden && volHideAt > performance.now()) volEl.hidden = true; else showVol(null); };
@@ -3065,6 +3147,7 @@ bCtrl.onclick = () => {   // 指 → 傾き・進む → 傾き・転がる → 
 };
 function updatePad() {
   if (!touchUI) return;
+  const bp = $id('bPause'); if (bp.hidden !== songOver) bp.hidden = songOver;   // 一時停止のボタン：遊んでいる間だけ
   const arm = resetArm > clock, rt = arm ? 'もう一度で最初から' : '曲を最初から';
   if (bReset.textContent !== rt) { bReset.textContent = rt; bReset.classList.toggle('arm', arm); }
 }
@@ -3077,9 +3160,8 @@ const vol = (() => {
   return v;
 })();
 volEl.innerHTML = VOL_ROWS.map(([k, name, keys]) => `<div class="row" data-k="${k}"><span class="lab">${name}</span><button data-d="-1">−</button>` +
-  `<span class="bar">${'<i></i>'.repeat(10)}</span><button data-d="1">＋</button><span class="num"></span><span class="key">${keys}</span></div>`).join('') +
-  `<div class="row on trow"><span class="lab">テーマ</span><button id="bTheme"></button><span class="key">T</span></div>`;
-volEl.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; if (b.id === 'bTheme') { toggleTheme(); showVol(volFocus); } else changeVol(b.closest('.row').dataset.k, +b.dataset.d); });
+  `<span class="bar">${'<i></i>'.repeat(10)}</span><button data-d="1">＋</button><span class="num"></span><span class="key">${keys}</span></div>`).join('');
+volEl.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; changeVol(b.closest('.row').dataset.k, +b.dataset.d); });
 function changeVol(k, d) {
   audioInit();
   vol[k] = clamp(vol[k] + d, 0, 10);
@@ -3092,7 +3174,6 @@ function showVol(k) {
   volFocus = k; volEl.hidden = false;
   volHideAt = performance.now() + (touchUI ? 5 : C.VOLUME_SHOW_SEC) * 1000;
   for (const row of volEl.children) {
-    if (!row.dataset.k) { row.querySelector('.key').hidden = touchUI; continue; }   // テーマの候補の段
     const v = vol[row.dataset.k];
     row.classList.toggle('on', !k || row.dataset.k === k);
     row.querySelectorAll('.bar i').forEach((el, i) => el.classList.toggle('f', i < v));
@@ -3406,28 +3487,13 @@ function tuneSong() {   // いまの曲の設計図から：和音・はね具�
   SW = S.swingUnit === 16 ? [0, r * 0.5, 0.5, 0.5 + r * 0.5] : [0, r * 0.5, r, r + (1 - r) * 0.5];
   tuneTheme();
 }
-// テーマの候補：T キーで切り替える（ブラウザに保存）。1つ目は曲ごとの設計図のリズムで、2〜4つ目は候補のリズム（ゆっくりの曲は stretch 倍）で
-let themeIdx = 0;
-try { themeIdx = clamp(parseInt(localStorage.getItem('hamster-theme'), 10) || 0, 0, C.THEMES.length - 1); } catch (e) { /* 保存できない開き方 */ }
+// テーマ：いつも最初の候補「いまの」（曲ごとの設計図のリズムで）。切り替え（T キー）はやめた。ほかの候補は C.THEMES に残してある
+const themeIdx = 0;
 function themeRhythm() { return themeIdx ? C.THEMES[themeIdx].notes.map(n => n[1] * (S.theme.stretch || 1)) : S.theme.rhythm; }
 function tuneTheme() {   // いまの候補のテーマを、いまの曲の調・音階で
   const map = MODES[S.theme.mode] || {}, mp = m => m + (map[((m % 12) + 12) % 12] || 0) + S.key;
   THEME_N = C.THEMES[themeIdx].notes.map(n => mp(n[0])).concat([mp(C.THEME_LAND)]);
   let at = -themeLen(); THEME_SCHED = themeRhythm().map((len, i) => { const n = { at, len, m: THEME_N[i] }; at += len; return n; });
-  const bt = document.getElementById('bTheme'); if (bt) bt.textContent = `${themeIdx + 1} ${C.THEMES[themeIdx].name}`;   // 音量の画面のボタン
-}
-function toggleTheme() {
-  themeIdx = (themeIdx + 1) % C.THEMES.length; tuneTheme();
-  try { localStorage.setItem('hamster-theme', String(themeIdx)); } catch (e) { /* 保存できなくても、開いているあいだは効く */ }
-  say(`テーマ${themeIdx + 1} ${C.THEMES[themeIdx].name}`, '#ffffff', 3);
-  previewTheme();
-}
-function previewTheme() {   // 切り替えたら、その候補を一度だけ小さく鳴らして聞かせる（列の楽器で、その曲の速さ・はね具合で）
-  if (!live()) return;
-  const music = soundMode === 'music' && !!mus.timer, t0 = music ? nextGrid(AC.currentTime + 0.05, 4) : AC.currentTime + 0.05, k0 = music ? idx16(t0) : 0;
-  let k = 0;
-  THEME_SCHED.forEach(n => { hits(S.theme.row, n.m, music ? T16(k0 + k) : t0 + k * sixteenth(), 0.6); k += n.len; });
-  hits(S.theme.rowLand, THEME_N[THEME_N.length - 1], music ? T16(k0 + k) : t0 + k * sixteenth(), 0.6);
 }
 const mus = { timer: null, t0: 0, next: 0, step: 0, bumpSlot: -1, groove: 0, grooveAt: -9 };
 const off16 = k => { const b = Math.floor(k / 4); return (b + SW[k - b * 4]) * beatSec(); };   // 曲の頭から k 番目の16分音符までの秒数（はね具合も）
