@@ -86,6 +86,20 @@
   }
   #result .hint { color: #aaa; font-weight: 400; font-size: 12px; margin-top: 8px; }
   #result button.wipe { height: 30px; font-size: 12px; margin-top: 12px; background: rgba(70,40,40,0.9); border-color: #a77; }
+  /* 25回目：結果の画面は木が主役。下に小さく：曲名・★・宝の数（小さく）と、文字なしのボタン（もう一回／次の曲／曲をえらぶ） */
+  #result { top: auto; bottom: 12px; transform: translateX(-50%); width: min(420px, calc(100vw - 24px)); background: rgba(0,0,0,0.5); padding: 8px 12px 10px; font-size: 13px; }
+  #result.touch { bottom: 54px; }
+  #result .rtop { display: flex; justify-content: center; align-items: center; gap: 10px; color: #cfcfcf; font-size: 12px; font-weight: 500; }
+  #result .rtop .stars { font-size: 13px; letter-spacing: 1px; margin: 0; line-height: 1; }
+  #result .rbtns { display: flex; justify-content: center; gap: 14px; margin-top: 6px; }
+  #result .rbtns button { width: 72px; height: 56px; border-radius: 14px; display: flex; align-items: center; justify-content: center; padding: 0; }
+  #result .rbtns .go { width: 96px; background: #2e5228; border-color: #8fe07a; }
+  #result .rbtns .re { background: #553620; border-color: #e0a070; }
+  #result .rbtns .ls { width: 56px; }
+  #result .rbtns button.focus, #result .rbtns button.on { outline: 3px solid #fff; outline-offset: 1px; }
+  #rMore { margin-top: 8px; max-height: 46vh; overflow-y: auto; }
+  .slist .fl { color: #ff9ec0; letter-spacing: 1px; }
+  @media (max-height: 480px) { #result { bottom: 6px; } #result.touch { bottom: 6px; } }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -96,9 +110,13 @@
 <button class="helpBtn" id="bHelp" title="遊び方（H）">？</button>
 <div id="help" hidden><div class="hbox"><div class="htitle">遊び方</div><div id="hBody"></div><button class="close" id="hClose">とじる</button></div></div>
 <div id="vol" hidden></div>
-<div id="result" hidden><div class="ttl" id="rTitle"></div><div class="stars" id="rStars"></div><div class="big" id="rGain"></div><div class="best" id="rBest"></div>
-  <div class="up" id="rUp"></div><div class="nest"><span id="rNest"></span><span class="nbar"><i id="rNbar"></i></span><span id="rNext"></span></div>
-  <div class="pick">次の曲</div><div id="rList" class="slist"></div><div class="hint" id="rHint"></div><button class="wipe" id="rWipe">巣と曲を最初からにする</button></div>
+<div id="result" hidden><div class="rtop"><span id="rTitle"></span><span class="stars" id="rStars"></span><span id="rGain"></span></div>
+  <div class="rbtns">
+    <button id="rRe" class="re" aria-label="もう一回"><svg width="30" height="30" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5a7.5 7.5 0 1 1-7 4.8" fill="none" stroke="#ffcf9a" stroke-width="2.6" stroke-linecap="round"/><path d="M1.8 5.2 L4.6 11 L9.6 7.6 Z" fill="#ffcf9a"/></svg></button>
+    <button id="rGo" class="go" aria-label="次の曲"><svg width="34" height="30" viewBox="0 0 28 24" aria-hidden="true"><path d="M3 3 L17 12 L3 21 Z" fill="#b8ff9a"/><rect x="19" y="3" width="4.5" height="18" rx="1.2" fill="#b8ff9a"/></svg></button>
+    <button id="rLs" class="ls" aria-label="曲をえらぶ"><svg width="24" height="24" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 2.2 L13.5 1 V10.6 A2.3 2.3 0 1 1 12 8.5 V4 L8 4.7 V12.2 A2.3 2.3 0 1 1 6.5 10.1 Z" fill="#ffd98a"/></svg></button>
+  </div>
+  <div id="rMore" hidden><div id="rList" class="slist"></div><div class="hint" id="rHint"></div><button class="wipe" id="rWipe">巣と曲を最初からにする</button></div></div>
 <div id="pause" hidden><div class="pbox">
   <div class="ptl"><svg width="22" height="22" viewBox="0 0 18 18" aria-hidden="true"><rect x="3" y="2" width="4.4" height="14" rx="1.2" fill="#ffe14a"/><rect x="10.6" y="2" width="4.4" height="14" rx="1.2" fill="#ffe14a"/></svg>一時停止</div>
   <div class="pbtns">
@@ -289,6 +307,25 @@ const CONFIG = {
   EARLY_NEAR: 1.0,          // 1.0＝画面の中（1.15倍にすると、画面のすぐ外にしかない時が20回に2〜3回あった）
   // 1曲の目標：噴き出した宝の数で ★1〜★3（サビの間は、頬袋の中の数が★の目盛りを満たしていく）
   STARS: [100, 200, 300],
+  // 25回目：クリア ― 音楽が消えた場所に、音楽を取り戻す
+  //   場所に、枯れた大きな木が1本（スタート地点のすぐ上。食べられない・ぶつからない。木のまわりには食べ物を置かない）。枝に、暗いつぼみが BUD_N 個
+  //   サビの前に、光る列（宝石の列・果物の流れのうち、光っているもの）を最後まで取り切るたびに、つぼみが1つ光る（食べる順番は問わない）
+  //     光るのは、いつも GLOW_N 本だけ。取り切ると、GLOW_GAP 秒あとに、少し離れた別の列・流れ（いま全部食べられる物）が光る
+  //       （全部の列・流れを数えると、サビの前に、道に沿って遊ぶと40本以上、ふらふら歩いても20本以上取り切れて、だれでもクリアになった）
+  //     仲間への道（光る果物）・かたまり・特別な食べ物は数えない。サビ（食べ放題）に入ったら数えない（列も光らない）
+  //   締めで、木の前へ移って、木に向かって噴き出す → 光ったつぼみが1つずつ、拍に合わせて花になり、咲いた数だけテーマのメロディが進む
+  //   結果は3段階：BUD_CLEAR 個に届かない「少し」（メロディが途中で止まる）／届いた「クリア」（主音で終わる）／全部の「満開」（仲間全員で、もう一度）
+  //   曲ごとに変えるときは、設計図の buds: { n, clear, gap }（gap：取り切ってから次の列・流れが光るまでの秒）
+  BUD_N: 10,                // つぼみの数（25回目にボット3種で決めた。下の GLOW_GAP と組で）
+  BUD_CLEAR: 7,             // クリアに必要な、咲いた花の数（1曲目は、設計図の buds で 6）
+  TUTOR_ROW: 4,             // 曲の始めに、ハムスターのすぐ近くに置く短い宝石の列の個数（光っている。取り切ると、すぐ光が小さな木へ飛ぶ）
+  GLOW_N: 1,                // 同時に光っている列・流れの数
+  GLOW_GAP: 5.75,           // 取り切ってから、次の列・流れが光るまで（秒）。上手に遊ぶと、サビの前に10本くらい（ボットで決めた）
+  GLOW_EVERY: 0,           // 前の列・流れが光ってから、次が光るまで、少なくともこの秒数（サビの前に光るのは、多くて 約100秒 ÷ これ ＋1 本）
+  GLOW_DIST: [220, 700],    // 次に光る列・流れの、ハムスターからのきょり（px。いちばん近い1個まで）。この中になければ、どこでも
+  DULL: 0.6,                // くすんだ場所：地面の色を、灰色へこの割合だけ寄せる（クリアすると、色が戻る）
+  END_AFTER_BLOOM: 1.6,     // 花が咲き終わって（満開は、仲間全員の演奏が終わって）から、結果の画面を出すまで（秒）
+  BUD_VOL: 0.085,           // つぼみが光ったときの鈴の大きさ（サビの伴奏と同じか、少し小さく。測って決めた）
 
   // 見た目
   FIELD_W: 1400, FIELD_H: 860,
@@ -446,6 +483,7 @@ const C = CONFIG;
 const SONGS = [
   { // 1曲目：今までの曲。マリンバとベルのポップ
     mix: { fanfare: 0.9, hookFill: 2.2 },
+    buds: { clear: 6 },   // 25回目：1曲目は、クリアの線を1つ低く（初めての人でもクリアしやすく）
     id: 'pop', name: 'はじまりの野原', short: '野原', band: { body: ['ベース', 'マリンバ', '低い和音', '木の太鼓', '歩くベース'], teeth: ['ハイハット', 'ベル', 'ガラス', 'きらきら', 'シェイカー'] }, bpm: 104, swing: 0.5, swingUnit: 8, key: 0, scale: [0, 2, 4, 7, 9], gain: 1,
     look: { ground: '#a9c79a', edge: '#6d8a5f', bg: '#2b2b2b', glow: '255,225,90' },
     chords: { intro: ['C△7', 'Am7', 'F△7', 'G6'], a: ['C△7', 'Am7', 'F△7', 'G6'], b: ['F△7', 'G6', 'Em7', 'Am7'], build: ['Dm7', 'G7'],
@@ -579,6 +617,7 @@ const SONGS = [
     ev: { fruit: 'upright', fruitHi: 'pizz', hard: 'vibes', blob: 'pianoStab', cluster: 'vibes', bump: [['upright', 33, 1.7], ['woodblock', 0]], growB: 'pianoStab', growT: 'vibes', unlock: 'vibes', sparkle: 'vibes' },
   },
   { // 4曲目：サイケデリックトランス。4つ打ちの間を16分のベースが転がる、フィルターがうねるアシッド、不思議な響きの音階
+    buds: { gap: 6.5 },   // 25回目：森は、次の列が光るまで少し長く（上手に遊ぶと満開になりやすかった）
     id: 'psy', name: 'ふしぎな森', short: '森', band: { body: ['キック', 'ベース', 'パッド', 'アシッド', 'タム'], teeth: ['裏ハット', 'ふしぎ音', 'ハイハット', '手拍子', 'きらきら'] }, bpm: 142, swing: 0.5, swingUnit: 8, key: 4, scale: [0, 1, 4, 5, 7, 8, 10], gain: 1.2, mix: { fruit: 1.3, blob: 1.35, big: 0.6, crystal: 1.64, fruitHi: 1.6, bigHit: 1.25, fanfare: 1.25, hookFill: 1.9, kime: 0.7 },
     look: { ground: '#9fc4bd', edge: '#4e837d', bg: '#150d24', glow: '190,120,255' },
     chords: { intro: ['E', 'E'], a: ['E', 'E', 'F', 'E'], b: ['Am', 'F', 'Dm', 'E'], build: ['Dm', 'F'], chorus: ['E', 'E', 'F', 'E'], hold: 'E', theme: ['E', 'F'], land: 'E', calm: ['E', 'Am'] },
@@ -729,6 +768,11 @@ const landingStep = () => (P('finale').from + finaleLead()) * 16;   // 締めで
 const song = { n: 1, idx: 0, t: 0, live: false, part: null, burst: false, burstN: 0, chorusEaten: 0, atChorus: null, rainBeat: -1, key: 0, times: {}, themeSent: false,
   result: null, pick: 0, nestShow: 0, stageUp: -1, stars: [false, false, false], starFx: [0, 0, 0], endAt: Infinity, calmFrom: Infinity, burstAt: -1 };
 const feast = () => song.part === 'chorus' || (song.part === 'finale' && !song.burst);   // サビ＝食べ放題（締めで噴き出すまで続く）
+// 25回目：木とつぼみ（下の「木とつぼみ」）
+//   tree：木の根もと（x, y）・高さ h・幅 w、枝 branches（[x0, y0, x1, y1, 太さ]）、つぼみ buds（{ x, y, gold }）、物を置かない所 zone
+//   buds：got 取り切った数（光った・光の粒が飛んでいるつぼみ）、lit 光ったつぼみ、fly 飛んでいる光の粒、log 取り切った記録
+const tree = { x: 0, y: 0, h: 200, w: 210, branches: [], buds: [], zone: null };
+const buds = { got: 0, lit: 0, fly: [], log: [], litAt: [] };
 // 巣の宝の山と、遊んだ曲（ブラウザに保存。保存できない開き方のときは、開いているあいだだけ）
 const SAVE_KEY = 'hamster-song';
 let nest = { total: 0, gem: 0, soft: 0, nut: 0, shell: 0 }, played = [], best = {};   // best：曲ごとの自己ベスト { n：宝の数, stars：★の数 }
@@ -746,8 +790,10 @@ function loadSave() {
 function saveNow(plays, next) { try { localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 2, plays, played, next, nest, best })); } catch (e) { /* 保存できなくても遊べる */ } }
 const starsOf = n => C.STARS.filter(t => n >= t).length;   // 宝の数 → ★の数
 const treasureCount = () => song.burst || songOver ? song.burstN : feast() ? ham.pouch.length : 0;   // ★の目盛り：サビの間は頬袋の中の数（＝宝になる数）、噴き出したあとは宝の数
-function starTick(dt) {   // ★に届いたら、光って鳴る
+function starTick(dt) {   // ★に届いたら、覚えておく（25回目から、遊んでいる間は出さない・鳴らさない）
   const n = treasureCount();
+  C.STARS.forEach((thr, i) => { if (!song.stars[i] && n >= thr) song.stars[i] = true; });
+  if (n >= 0) return;
   C.STARS.forEach((thr, i) => {
     if (!song.stars[i] && n >= thr) { song.stars[i] = true; song.starFx[i] = 1; sfxStar(i); }
     if (song.starFx[i] > 0) song.starFx[i] = Math.max(0, song.starFx[i] - dt / 0.9);
@@ -770,6 +816,10 @@ function enterPart(p) {
     bandAll();                                        // バンドの顔ぶれ：全員が光って「全員集合！」
     rings.push({ x: ham.x, y: ham.y, r0: ham.r, grow: 300, t: 0, life: 0.9, width: 8, color: '255,230,120' });
   }
+  if (p === 'finale') {                              // 締め：木の前へ、ぴょんと飛んでいく（25回目。2拍。画面は揺らさない）
+    const y1 = clamp(tree.y + ham.r * 1.5 + 6, ham.r, C.FIELD_H - ham.r);   // 木の根もとのすぐ下（ふくらんだほっぺが、木の枝にかからないように）
+    song.hop = { t0: clock, T: 2 * beatSec(), x0: ham.x, y0: ham.y, x1: tree.x, y1, H: 45 + ham.r * 0.35 };
+  }
   if (p === 'result') finishSong();
 }
 // 曲の時計を進めて、場面の切り替わり・サビの雨・締めの噴き出しを動かす
@@ -788,7 +838,7 @@ function songTick(dt) {
   }
   if (song.part === 'finale' && !song.burst) {
     const land = landingStep() * sixteenth();         // 小節の頭なので、はね具合に関係なく
-    if (!song.themeSent && song.t >= land - themeLen() * sixteenth() - 0.05) { song.themeSent = true; if (!musicLive() && !C.CHARGE) sfxTheme(land - song.t); }   // 効果音モード：テーマをその場で鳴らす（ためON は、離したときに着地の和音だけ）
+    if (!song.themeSent && song.t >= land - themeLen() * sixteenth() - 0.05) song.themeSent = true;   // テーマは、噴き出したあとの花で鳴らす（25回目）
     if (C.CHARGE) chargeTick(dt);                     // ため：トントン押してためて、ためきったら、もう1回押すと噴き出す（待っている間は、着地の手前の小節をくり返す）
     else ham.shiver = song.t >= land - beatSec() ? 1 : 0;  // ためOFF：着地の直前の拍に、ぷるぷる震えて、ためる
     if (song.t >= land && (!C.CHARGE || charge.state === 'go')) burst();   // 主音の着地と同時に、頬袋の中身を全部噴き出す
@@ -961,35 +1011,360 @@ function chargeSound(t, lv, max) {   // ためる音：1段ごとに上がる（
 function burst() {
   const clv = C.CHARGE && charge.state !== 'off' ? charge.lv : -1, pull = clv >= 0 ? 0.35 + 0.65 * clv / C.CHARGE_STEPS : 0;   // ためた段数（ためOFF：-1）
   if (charge.log) charge.log.burst = { at: +clock.toFixed(3), audio: AC ? +AC.currentTime.toFixed(3) : null, songT: +song.t.toFixed(3), landT: +landT().toFixed(3), lv: clv };
-  if (clv >= 0) { charge.state = 'done'; cam.pv -= 18 * pull; if (!musicLive() && AC && live()) hits(S.theme.land, 72 + S.key, AC.currentTime, 1, CH.fin.land); }   // カメラが勢いよく引く。効果音モードは、ここで着地の和音
+  if (clv >= 0) { charge.state = 'done'; cam.pv -= 18 * pull; }   // カメラが勢いよく引く
+  if (!musicLive() && AC && live()) burstHit(AC.currentTime);   // 効果音モード：ここで「ジャン」と「ぽんっ」（音楽モードは、音楽の刻みで）
   ham.shiver = 0;
   song.burst = true;
-  palsParty();                                       // ついて歩いていた仲間も、巣のまわりで喜ぶ
+  palsParty();                                       // ついて歩いていた仲間も、木の下で喜ぶ
   const items = ham.pouch.splice(0), n = items.length;
   song.burstN = n;
-  items.forEach((it, i) => {   // start：飛び出す時刻（曲の時計）。音と見た目がずれないように、飛んでいる物は曲の時計で進める
-    const a = Math.random() * TAU, [tx, ty] = pileSpot(nest.total + i, nest.total + n), u = i / Math.max(1, n), late = u * u * u;
-    flyers.push({ look: it.look, s: it.s, h: it.h, seed: it.seed, w: clamp(it.w * 0.75, 7, 24), x0: ham.x + Math.cos(a) * ham.r * 0.4, y0: ham.y + Math.sin(a) * ham.r * 0.4,
-      tx, ty, start: song.t + u * 0.8, t: 0, T: 0.85 + Math.random() * 0.7 + 2 * late, H: 140 + Math.random() * 260 + 260 * late, show: i < (lowFx ? 140 : 300) || u > 0.92 });
+  const B = bloomPlan();                             // 咲き方（光ったつぼみの数で、3段階）を決める（25回目）
+  for (const f of foods) f.fade = 1;                 // 残っていた食べ物は、ふわっと消える（木が主役に）
+  respawns = [];
+  items.forEach((it, i) => {   // 宝は木へ飛んで、枝のあたりで吸いこまれる。start：飛び出す時刻（曲の時計）。飛んでいる物は曲の時計で進める
+    const a = Math.random() * TAU, bd = tree.buds[i % tree.buds.length], u = i / Math.max(1, n), late = u * u * u, k = 0.3 + 0.65 * Math.random();
+    const tx = lerp(tree.x, bd.x, k) + (Math.random() - 0.5) * tree.h * 0.1, ty = lerp(tree.y - tree.h * 0.42, bd.y, k) + (Math.random() - 0.5) * tree.h * 0.1;
+    flyers.push({ look: it.look, s: it.s, h: it.h, seed: it.seed, w: clamp(it.w * 0.75, 7, 24), x0: ham.x + Math.cos(a) * ham.r * 0.4, y0: ham.y - ham.r * 0.2 + Math.sin(a) * ham.r * 0.4,
+      tx, ty, start: song.t + u * 0.55, t: 0, T: 0.55 + Math.random() * 0.4 + 0.5 * late, H: 90 + Math.random() * 170 + 120 * late, show: i < (lowFx ? 140 : 300) || u > 0.92, tree: true });
   });
-  song.burstAt = song.t;
-  song.calmFrom = song.t + C.END_CALM_AFTER;
-  if (n) {   // 最後の宝が巣に着く時刻。音楽モードでは拍の頭にそろえて、最後の宝はそこに着くように少しだけ遅らせる
-    const last = flyers.reduce((a, p) => (p.start + p.T > a.start + a.T ? p : a));
-    let fin = last.start + last.T;
-    if (musicLive()) { const f2 = Math.ceil(fin / beatSec() - 1e-6) * beatSec(); last.T += f2 - fin; fin = f2; }
-    last.last = true; song.finalAt = fin;
-    song.endAt = Math.max(fin + C.END_FINAL_RING, song.t + C.END_LAND_TAIL);   // 結果の画面：最後の1音が鳴り終わる頃（着地の和音の余韻が消えたあと）
-    sfxEnding(fin);
-  } else { song.finalAt = song.t; song.endAt = song.t + C.END_LAND_TAIL; }
+  song.burstAt = song.t; song.burstClock = clock;
+  song.calmFrom = B.level === 'part' ? Infinity : B.end;   // 少し：主音の和音で終わらないように、静かな和音も鳴らさない
+  song.finalAt = B.end; song.endAt = B.end + C.END_AFTER_BLOOM;
+  bloomSounds(B);
   shake = Math.max(shake, clv >= 0 ? C.SHAKE_BURST + (C.CHARGE_SHAKE - C.SHAKE_BURST) * clv / C.CHARGE_STEPS : C.SHAKE_BURST); lastShakeAt = clock;   // ためた分だけ強く（このときだけ）
   squash(ham.face, 0.5); ham.relief = 3; ham.puff = 0;
   rings.push({ x: ham.x, y: ham.y, r0: ham.r, grow: 260 * (1 + 0.6 * pull), t: 0, life: 0.8, width: 10, color: '255,240,160' });
   if (pull > 0) rings.push({ x: ham.x, y: ham.y, r0: ham.r * 1.2, grow: 420 * pull, t: 0.05, life: 0.9, width: 6, color: '255,210,110' });
   rings.push({ x: ham.x, y: ham.y, r0: ham.r * 0.5, grow: 160, t: 0.08, life: 0.6, width: 5, color: '255,255,255' });
-  if (n) say(`宝 +${n}`, '#fff27a', 3);
-  if (AC && !musicLive()) popSound(AC.currentTime);   // 音楽モードでは、着地の音と同じ刻みで鳴る
   rainSnd.i = 0; rainSnd.at = -9; rainSnd.t0 = AC ? AC.currentTime : 0;
+}
+// ---------------- 木とつぼみ（25回目） ----------------
+const budN = () => (S.buds && S.buds.n) || C.BUD_N, budClear = () => Math.min(budN(), (S.buds && S.buds.clear) || C.BUD_CLEAR);
+const budCount = () => !feast() && !song.burst && !songOver;   // 取り切りを数える間（サビの前まで）
+function startView() {   // 曲の始まりに、画面に見える広場の半分の幅・高さ（いまの画面の大きさから。寄っているときの見え方）
+  const W = innerWidth, H = innerHeight, compact = touchUI || H < 540 || W < 900, PAD = compact ? 6 : 10;
+  const TOP = 22 + (compact ? 46 : 64), BOTTOM = (!touchUI ? 46 : 84) + (touchUI && C.PALS && C.BAND_PANEL ? 36 : 0);
+  const aw = Math.max(1, W - PAD * 2), ah = Math.max(1, H - TOP - BOTTOM - PAD), full = Math.min(aw / C.FIELD_W, ah / C.FIELD_H), cover = Math.max(aw / C.FIELD_W, ah / C.FIELD_H);
+  const VS = full * Math.max(1, Math.sqrt(cover / full / 1.3)) * C.CAM_ZOOM_START * (touchUI ? C.CAM_ZOOM_TOUCH : 1);
+  return [aw / 2 / VS, ah / 2 / VS];
+}
+function treePlace() {   // 木：スタート地点のすぐ上に、曲が始まったときに画面に入る大きさで。枝の先に、つぼみ（左から順に光る。BUD_CLEAR 個までは白い輪、その先は金の輪）
+  const [hw, hh] = startView(), cx = C.FIELD_W / 2, cy = C.FIELD_H / 2;
+  const H = clamp(Math.min(hh * 0.92 - 40, hw * 1.7), 120, 230), W = H * 1.05;
+  Object.assign(tree, { x: cx, y: cy - 40, h: H, w: W, branches: [], buds: [] });
+  tree.zone = { x0: cx - W / 2 - 8, x1: cx + W / 2 + 8, y0: tree.y - H - 14, y1: tree.y + 4 };
+  const n = budN(), cl = budClear(), rnd = k => hash(song.idx * 37 + k * 1.3 + 5);
+  const top = [cx + (rnd(90) - 0.5) * H * 0.06, tree.y - H * 0.44];
+  tree.branches.push([cx, tree.y, top[0], top[1], H * 0.085]);                                     // 幹
+  for (let i = 0; i < n; i++) {                                                                    // 枝：幹の先から、つぼみまで（途中で少し曲がる）
+    const u = n > 1 ? i / (n - 1) : 0.5, a = Math.PI * (1.1 + 0.8 * u) + (rnd(i) - 0.5) * 0.1;
+    const r = H * (0.42 + 0.14 * Math.sin(u * Math.PI)) * (0.94 + 0.12 * rnd(i + 20));
+    const bx = top[0] + Math.cos(a) * r * 1.0, by = top[1] + Math.sin(a) * r * 0.95;
+    const mx = top[0] + Math.cos(a) * r * 0.5 + (rnd(i + 40) - 0.5) * H * 0.08, my = top[1] + Math.sin(a) * r * 0.5 - H * 0.04;
+    tree.branches.push([top[0], top[1], mx, my, H * 0.045], [mx, my, bx, by, H * 0.026]);
+    if (rnd(i + 60) < 0.6) { const ta = a + (rnd(i + 70) < 0.5 ? -0.6 : 0.6), tl = H * 0.08; tree.branches.push([mx, my, mx + Math.cos(ta) * tl, my + Math.sin(ta) * tl, H * 0.016]); }   // 小枝
+    tree.buds.push({ x: bx, y: by, gold: i >= cl });
+  }
+}
+// 光る列（宝石の列・果物の流れ）を最後まで取り切った：最後の1個の場所から、光の粒が画面の端の小さな木へ。着いた瞬間（次の8分音符）に、つぼみが光って、鈴が鳴る
+function budEarn(x, y, key) {
+  if (!budCount() || !isGlow(key)) return;          // 光っていない列・流れは数えない
+  buds.glowAt = clock + ((S.buds && S.buds.gap) || C.GLOW_GAP);   // 曲ごとに変えるときは、設計図の buds.gap
+  buds.log.push({ t: +song.t.toFixed(2), key, body: +ham.body.toFixed(2), aim: bot.goal === key, k: buds.got });
+  if (buds.got >= budN()) return;                    // 全部光ったあとは、数えない
+  const k = buds.got++, now = AC ? AC.currentTime : clock;
+  const at = AC && soundMode === 'music' && mus.timer ? T16(gridIdx(now + 0.1, 2)) : now + 0.12;   // 次の8分音符（0.1秒より後）
+  buds.fly.push({ x, y, k, t: 0, T: Math.max(0.1, at - now) });
+  sfxBud(k, at);
+}
+const setOf = key => key[0] === 'r' ? groups[key.slice(1)] : flows[key.slice(1)];   // 列・流れの印 → その記録（'r12' → groups[12]、'f3' → flows[3]）
+const isGlow = key => { const g = key && setOf(key); return !!(g && g.glow); };
+function glowTick() {   // 光っている列・流れが GLOW_N 本より少なければ、少し離れた所の、いま全部食べられる列・流れを光らせる
+  if (!budCount() || clock < (buds.glowAt || 0) || clock < (buds.offerAt ?? -1e9) + C.GLOW_EVERY || buds.got >= budN()) return;
+  const sets = {};
+  for (const f of foods) {
+    const k = botSet(f); if (!k) continue;
+    const s = sets[k] || (sets[k] = { n: 0, d: Infinity, ok: true });
+    s.n++; s.d = Math.min(s.d, rectDist(f, ham.x, ham.y)); if (!f.edible || f.born < 1 || f.suck) s.ok = false;
+  }
+  if (Object.keys(sets).filter(isGlow).length >= C.GLOW_N) return;
+  const cand = Object.entries(sets).filter(([k, s]) => s.ok && !isGlow(k)), [lo, hi] = C.GLOW_DIST;
+  const pool = cand.filter(([, s]) => s.d >= lo && s.d <= hi), list = pool.length ? pool : cand;
+  if (!list.length) { buds.glowAt = clock + 0.5; return; }
+  const [k] = list[(Math.random() * list.length) | 0];
+  setOf(k).glow = true; setOf(k).glowAt = clock; buds.offerAt = clock;
+}
+function budsTick(dt) {   // 光の粒が小さな木に着いたら、つぼみが光る
+  for (const p of buds.fly) { p.t += dt; if (p.t >= p.T && !p.done) { p.done = true; buds.lit = Math.max(buds.lit, p.k + 1); buds.litAt[p.k] = clock; } }
+  buds.fly = buds.fly.filter(p => !p.done || p.t < p.T + 0.3);
+}
+function sfxBud(k, t) {   // 小さな鈴の音：つぼみが増えるほど1音ずつ高く（その時の和音の音で）。テーマのメロディは使わない（締めまでとっておく）
+  if (!AC || !live()) return;
+  const ch = soundMode === 'music' && mus.timer ? chordAt(t) : CH.tonic, pool = chordNotes(ch, 74, 110);
+  const prev = buds.pitch ?? 0, m = k === 0 ? pool[0] : (pool.find(p => p > prev) ?? pool[pool.length - 1]);
+  buds.pitch = m;
+  const b = curBus; curBus = null;
+  try { play('bell', t, m, 1.1, C.BUD_VOL * 0.9); play('glass', t, m + 12, 0.6, C.BUD_VOL * 0.35); }
+  finally { curBus = b; }
+}
+// 最初の1本：曲の始めに、ハムスターのすぐ近く（画面の中）に、短い宝石の列（最初の歯で食べられる宝石）
+function tutorRow() {
+  const n = C.TUTOR_ROW, s = Math.min(C.START_GEM[0], ham.body * 0.7), h = Math.min(C.START_GEM[1], ham.teeth * 0.92), w = px(s), sp = rowGap(h), L = sp * (n - 1);
+  const [hw, hh] = startView(), bx = hw * 0.9 - w, by = hh * 0.9 - w;
+  for (const deg of [20, 340, 45, 315, 70, 290, 90, 270, 110, 250, 135, 225, 160, 200]) {   // 右（指の絵が動かす向き）から順に
+    const a = deg * Math.PI / 180, d0 = Math.max(pileClear() + w, ham.r + 60) + 12;
+    for (const dir of [a + Math.PI / 2, a - Math.PI / 2, a]) {            // 列の向き：ハムスターのまわりを回る向き（見える所に収まりやすい）、だめなら外へ
+      const sx = ham.x + Math.cos(a) * d0 - Math.cos(dir) * L / 2 * (dir === a ? 0 : 1), sy = ham.y + Math.sin(a) * d0 - Math.sin(dir) * L / 2 * (dir === a ? 0 : 1);
+      const pts = [...Array(n)].map((_, i) => [sx + Math.cos(dir) * sp * i, sy + Math.sin(dir) * sp * i]);
+      if (pts.every(([x, y]) => Math.abs(x - ham.x) < bx && Math.abs(y - ham.y) < by && !onPile(x, y, w) && x > w && y > w && x < C.FIELD_W - w && y < C.FIELD_H - w)) {
+        const id = ++clusterSeq;
+        groups[id] = { kind: 'row', n, s, h, clear: px(h) * C.GEM_CLEAR + C.PASS_MARGIN, eaten: 0, sx: 0, sy: 0, mel: -1, tutor: true, glow: true };
+        pts.forEach(([x, y], ri) => foods.push({ s, h, w, x, y, boulder: false, look: 'gem', seed: Math.random(), born: 1, flash: 0, shake: 0, msgCd: 0, hitCd: 0, edible: true, revive: 0, reviveIn: 0, cluster: id, ri, dim: 0 }));
+        return id;
+      }
+    }
+  }
+  return 0;
+}
+// ---- 締めの花（25回目）
+//   噴き出した宝が木に吸いこまれたら（拍の頭）、光ったつぼみが1つずつ、拍に合わせて花になる。花は鈴のように鳴り、咲いた数だけテーマのメロディが進む
+//   メロディ：クリアの数（cl）の花で、テーマが主音に着く（テーマの頭の cl−2 音 ＋ 最後の「レ ド」）。足りなければ途中で止まる（主音に戻らない）
+//   和音：はじめの半分は IV、あとは V、主音の花で I。クリアの先の花（金の輪）は、主音の和音を上がるきらきら
+//   満開：そのあと、集めた仲間全員で、サビの和音の上でもう一度2小節、最後に着地の「ジャーン」
+function bloomPlan() {
+  const b = Math.min(buds.got, budN()), cl = budClear(), n = budN(), level = b >= n ? 'full' : b >= cl ? 'clear' : 'part';
+  const bt = beatSec(), t0 = landingStep() * sixteenth(), start = t0 + Math.ceil(1.9 / bt - 1e-6) * bt;   // 宝が木に吸いこまれてから
+  const T = THEME_N, seq = [...T.slice(0, Math.max(0, cl - 2)), T[T.length - 2], T[T.length - 1]].slice(-cl), th = CH.fin.theme, half = Math.max(1, Math.ceil((cl - 1) / 2));
+  const top = T[T.length - 1], ext = chordNotes(triad(CH.fin.land), top + 1, top + 30);
+  const list = tree.buds.map((bd, i) => {
+    if (i >= b) return { i, kind: 'dark', open: 0 };
+    const at = start + i * bt;
+    if (i < cl) return { i, at, open: 0, kind: i === cl - 1 ? 'tonic' : 'theme', m: seq[i], ch: i === cl - 1 ? CH.fin.land : th[Math.min(th.length - 1, Math.floor(i / half))] };
+    return { i, at, open: 0, kind: 'extra', m: ext[Math.min(ext.length - 1, i - cl)], ch: CH.fin.land };
+  });
+  const lastAt = b ? start + (b - 1) * bt : start - bt, tonicAt = level !== 'part' ? start + (cl - 1) * bt : null;
+  let end = lastAt + 2 * bt, reprise = null;
+  if (level === 'clear') end = Math.max(end, tonicAt + barSec());
+  if (level === 'full') { const r0 = Math.ceil((lastAt + bt) / barSec() - 1e-6) * barSec(); reprise = { at: r0, bars: 2 }; end = r0 + 2 * barSec() + barSec(); }
+  song.bloom = { level, b, cl, n, start, lastAt, tonicAt, reprise, end, list, wave: 0, green: 0, petals: [], sat: false, danced: false };
+  return song.bloom;
+}
+function burstHit(t) {   // 噴き出す瞬間：締めの「ジャン」を属和音（V）で ＋「ぽんっ」（効果音の音量で）
+  const dom = CH.fin.theme[CH.fin.theme.length - 1];
+  for (const pt of S.finale.hit) playPart(pt, 0, t, 1, dom);
+  const b = curBus; curBus = null; popSound(t); curBus = b;
+}
+function bloomSounds(B) {   // 花の音を、まとめて予約する（途中でやめたら、bloomBus を止める）
+  if (!AC || !live()) return;
+  const music = musicLive(), at = st => music ? mus.t0 + st : AC.currentTime + Math.max(0.02, st - song.t), bt = beatSec();
+  const bus = AC.createGain(); bus.gain.value = 1; bus.connect(musicBus || sfxBus); song.bloomBus = bus;
+  const b0 = curBus; curBus = bus;
+  try {
+    const on = B.list.filter(f => f.at !== undefined);
+    const pad = (ch, t, len) => {   // 花の下の、やわらかい和音と低い根音
+      for (const m of chordNotes(triad(ch), 52, 71)) syn(t, hz(m), len, 0.007 * C.MUSIC_VOLUME, { type: 'triangle', atk: 0.06, hold: len * 0.5, flt: 'lowpass', ff: 1500 });
+      syn(t, hz(rootIn(ch, 36)), len, 0.022 * C.MUSIC_VOLUME, { atk: 0.04 });
+    };
+    let g0 = 0;
+    on.forEach((f, j) => {
+      const t = at(f.at), nx = on[j + 1];
+      hits(S.theme.lead, f.m, t, f.kind === 'extra' ? 0.75 : 1, f.ch, bt * 0.95, true);   // テーマの楽器で、その音
+      play('bell', t, f.m + 12, 1.4, C.BUD_VOL * 0.9);                                    // 花が、鈴のように
+      if (f.kind === 'tonic') hits(S.theme.land, 72 + S.key, t, 1, CH.fin.land, 0, true);   // 主音に着いた：着地の和音（「ジャーン」）
+      if (f.kind === 'extra') play('glass', t + 0.05, f.m + 24, 0.5, C.BUD_VOL * 0.3);
+      if (f.kind === 'theme' && (!nx || nx.ch !== f.ch || nx.kind !== 'theme')) {          // 同じ和音の花のまとまりごとに、その長さだけ
+        const len = (j - g0 + 1) * bt + (!nx ? 2 * bt : 0.05);                               // 少し：最後の和音は、2拍のばして消える（主音に戻らない）
+        pad(f.ch, at(on[g0].at), len); g0 = j + 1;
+      } else if (f.kind !== 'theme') g0 = j + 1;
+    });
+    if (B.reprise) {   // 満開：仲間全員で、サビの和音の上でもう一度2小節
+      const R = B.reprise, k0 = P('chorus').from * 16, joined = i => !C.PALS || (pals.list[i] && pals.list[i].joinBar !== undefined), parts = [...S.base, ...S.chorus];
+      S.body.forEach((l, i) => { if (joined(i)) parts.push(...l); }); S.teeth.forEach((l, i) => { if (joined(i)) parts.push(...l); });
+      for (let j = 0; j < 16 * R.bars; j++) {
+        const t = at(R.at + off16(j)), ch = stepChord(k0 + j);
+        for (const pt of parts) { const o = pt[2] || {}; if ((o.in && !o.in.includes('c')) || o.last || o.from) continue; playPart(pt, j, t, 1, ch); }
+      }
+      play(S.kit.crash, at(R.at), 0, 1.8, 0.05); play(S.kit.kick, at(R.at), 0, 0, 0.14);
+      hits(S.theme.land, 72 + S.key, at(R.at + R.bars * barSec()), 1, CH.fin.land, 0, true);
+    }
+  } finally { curBus = b0; }
+}
+function bloomTick(dt) {   // 花が開く・色が戻る・仲間・花びら
+  const B = song.bloom; if (!B) return;
+  for (const f of B.list) {
+    if (f.at === undefined) continue;
+    const was = f.open; f.open = clamp((song.t - f.at) / 0.3, 0, 1);
+    if (was === 0 && f.open > 0) {   // 咲いた瞬間：光の輪ときらっ
+      const bd = tree.buds[f.i], big = f.kind === 'tonic';
+      rings.push({ x: bd.x, y: bd.y, r0: 6, grow: big ? 120 : 46, t: 0, life: big ? 0.9 : 0.5, width: big ? 6 : 3, color: big ? '255,230,150' : '255,215,235' });
+      sparks.push({ x: bd.x, y: bd.y, t: 0, life: 0.5, s: big ? 12 : 7 });
+    }
+  }
+  if (B.tonicAt !== null && song.t >= B.tonicAt) {   // クリア：木から色の波が場所全体に広がり、くすみが消える。仲間が木のまわりで踊る
+    B.wave = Math.min(2200, (song.t - B.tonicAt) * 460); B.green = clamp((song.t - B.tonicAt) / 1.2, 0, 1);
+    if (!B.danced) { B.danced = true; palsTo('dance'); }
+  }
+  if (B.level === 'part' && !B.sat && song.t >= B.lastAt + beatSec()) { B.sat = true; palsTo('sit'); }   // 少し：仲間は木の下に座る
+  if (B.reprise && song.t >= B.reprise.at && song.t < B.reprise.at + 2 * B.reprise.bars * barSec() && !lowFx) {   // 満開：花びらが舞う
+    for (let k = 0; k < (dt * 30 | 0) + (Math.random() < (dt * 30) % 1 ? 1 : 0); k++)
+      B.petals.push({ x: tree.x + (Math.random() - 0.5) * 1200, y: tree.y - tree.h * (1.2 + Math.random() * 0.8), vx: (Math.random() - 0.5) * 30, vy: 45 + Math.random() * 45, a: Math.random() * TAU, va: (Math.random() - 0.5) * 4, t: 0, life: 7 + Math.random() * 3 });
+  }
+  for (const p of B.petals) { p.t += dt; p.x += (p.vx + Math.sin(p.t * 2 + p.a) * 25) * dt; p.y += p.vy * dt; p.a += p.va * dt; }
+  B.petals = B.petals.filter(p => p.t < p.life && p.y < C.FIELD_H + 20);
+}
+function drawPetals() {
+  const B = song.bloom; if (!B || !B.petals.length) return;
+  for (const p of B.petals) {
+    ctx.globalAlpha = Math.min(1, (p.life - p.t) / 1.2); ctx.fillStyle = p.a % 2 > 1 ? '#ffd3e2' : '#ffb0c9';
+    ctx.beginPath(); ctx.ellipse(p.x, p.y, 6, 3.4, p.a, 0, TAU); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+// ---- 木とつぼみの見た目（25回目）
+const rgbOf = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+function dullCol(hex, k) {   // くすんだ色：明るさはそのままで、灰色へ k だけ寄せる（少しだけ暗く）
+  const [r, g, b] = rgbOf(hex), l = 0.3 * r + 0.59 * g + 0.11 * b, f = v => Math.round(lerp(v, l, k) * (1 - 0.06 * k));
+  return `rgb(${f(r)},${f(g)},${f(b)})`;
+}
+function drawColorBack() {   // 色が戻る所：少し（咲いた花のまわりだけ）／クリア・満開（木から、場所全体へ広がる波）
+  const B = song.bloom; if (!B) return;
+  ctx.save(); ctx.beginPath();
+  let any = false;
+  if (B.wave > 0) { ctx.arc(tree.x, tree.y - tree.h * 0.5, B.wave, 0, TAU); any = true; }
+  else for (const f of B.list) if (f.open > 0 && f.kind !== 'gone') { const bd = tree.buds[f.i], rr = 70 * Math.min(1, f.open * 1.2); ctx.moveTo(bd.x + rr, bd.y); ctx.arc(bd.x, bd.y, rr, 0, TAU); any = true; }
+  if (any) { ctx.clip(); ctx.fillStyle = S.look.ground; ctx.fillRect(0, 0, C.FIELD_W, C.FIELD_H); }
+  ctx.restore();
+}
+function drawTree() {   // 枯れた大きな木（スタート地点のすぐ上）。つぼみ：暗い／光った（取り切った分）／花（締めで咲いた）
+  if (!tree.buds.length) return;
+  const B = song.bloom, life = B ? clamp(B.green, 0, 1) : 0;   // クリアすると、木にも色が戻る
+  const wood = life > 0 ? `rgb(${Math.round(lerp(110, 120, life))},${Math.round(lerp(98, 82, life))},${Math.round(lerp(88, 56, life))})` : 'rgb(110,98,88)';
+  ctx.fillStyle = 'rgba(0,0,0,0.16)'; ctx.beginPath(); ctx.ellipse(tree.x, tree.y + 2, tree.h * 0.16, tree.h * 0.045, 0, 0, TAU); ctx.fill();   // 根もとの影
+  ctx.lineCap = 'round'; ctx.strokeStyle = wood;
+  for (const [x0, y0, x1, y1, w] of tree.branches) { ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); }
+  ctx.strokeStyle = 'rgba(40,30,22,0.35)'; ctx.lineWidth = tree.h * 0.012;   // 幹の、ひびの線
+  ctx.beginPath(); ctx.moveTo(tree.x - tree.h * 0.015, tree.y - 4); ctx.lineTo(tree.x - tree.h * 0.01, tree.y - tree.h * 0.3); ctx.moveTo(tree.x + tree.h * 0.02, tree.y - tree.h * 0.08); ctx.lineTo(tree.x + tree.h * 0.012, tree.y - tree.h * 0.36); ctx.stroke();
+  ctx.lineCap = 'butt';
+  const beat = Math.pow(1 - beatPhase(), 2), r = tree.h * 0.045;
+  tree.buds.forEach((bd, i) => {
+    const f = B && B.list[i], open = f ? f.open : 0;
+    if (open > 0) { drawFlower(bd.x, bd.y, r * (1.2 + 1.1 * open), open, i); return; }
+    drawBud(bd.x, bd.y, r, i < buds.lit, bd.gold, beat, clock - (buds.litAt[i] ?? -9));
+  });
+}
+function drawBud(x, y, r, lit, gold, beat, since) {   // つぼみ1つ（光った：あたたかい色で光る。光った瞬間は、ぽんと大きく）
+  const pop = since >= 0 && since < 0.5 ? Math.sin(since / 0.5 * Math.PI) : 0, rr = r * (1 + 0.5 * pop);
+  if (lit) {
+    const g = ctx.createRadialGradient(x, y, rr * 0.3, x, y, rr * (2.6 + 0.6 * beat));
+    g.addColorStop(0, `rgba(255,235,150,${0.75 + 0.25 * beat})`); g.addColorStop(1, 'rgba(255,200,120,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, rr * (2.6 + 0.6 * beat), 0, TAU); ctx.fill();
+    ctx.fillStyle = '#ffd6e0'; ctx.strokeStyle = '#c85a7a';
+  } else { ctx.fillStyle = '#4e4540'; ctx.strokeStyle = gold ? 'rgba(232,190,80,0.9)' : 'rgba(235,235,235,0.75)'; }
+  ctx.lineWidth = Math.max(1, rr * 0.28); ctx.beginPath(); ctx.ellipse(x, y, rr * 0.78, rr, 0, 0, TAU); ctx.fill(); ctx.stroke();
+  if (lit) { ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.beginPath(); ctx.ellipse(x - rr * 0.25, y - rr * 0.35, rr * 0.18, rr * 0.28, -0.4, 0, TAU); ctx.fill(); }
+}
+function drawFlower(x, y, r, open, i) {   // 花：5枚の花びらが開く
+  const rot = i * 1.3 + (1 - open) * 0.8, pr = r * (0.35 + 0.65 * Math.min(1, open));
+  ctx.fillStyle = 'rgba(255,240,200,0.35)'; ctx.beginPath(); ctx.arc(x, y, pr * 1.6, 0, TAU); ctx.fill();
+  ctx.fillStyle = i % 3 === 1 ? '#ffe8f0' : '#ffb7cf'; ctx.strokeStyle = '#d0587e'; ctx.lineWidth = Math.max(1, r * 0.08);
+  for (let k = 0; k < 5; k++) { const a = rot + k * TAU / 5; ctx.beginPath(); ctx.ellipse(x + Math.cos(a) * pr * 0.55, y + Math.sin(a) * pr * 0.55, pr * 0.5, pr * 0.32, a, 0, TAU); ctx.fill(); ctx.stroke(); }
+  ctx.fillStyle = '#ffd84a'; ctx.beginPath(); ctx.arc(x, y, pr * 0.24, 0, TAU); ctx.fill();
+}
+function glowSets() {   // いま光っている列・流れ：印 → 残りの物（列は並び順、流れは置いた順）
+  const out = {};
+  if (!budCount()) return out;
+  for (const f of foods) { const k = botSet(f); if (k && isGlow(k)) (out[k] = out[k] || []).push(f); }
+  for (const k in out) if (k[0] === 'r') out[k].sort((a, b) => a.ri - b.ri);
+  return out;
+}
+function drawGlowRows() {   // 光る列：残りの物を、光る糸でつなぐ（拍に合わせて、ゆっくり明るく）。1つずつにも、やわらかい光
+  const beat = Math.pow(1 - beatPhase(), 2), VS = view.VS;
+  for (const list of Object.values(glowSets())) {
+    const a = 0.45 + 0.35 * beat;
+    if (list.length > 1) {
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      for (const [w, al] of [[10 / VS + 6, 0.22 * a], [3.2 / VS + 1.5, 0.9 * a]]) {
+        ctx.strokeStyle = `rgba(255,246,200,${al})`; ctx.lineWidth = w; ctx.beginPath();
+        list.forEach((f, i) => (i ? ctx.lineTo(f.x, f.y) : ctx.moveTo(f.x, f.y))); ctx.stroke();
+      }
+      ctx.lineCap = 'butt'; ctx.lineJoin = 'miter';
+    }
+    for (const f of list) {
+      const gr = f.w * 0.75 + 10 / VS, g = ctx.createRadialGradient(f.x, f.y, f.w * 0.2, f.x, f.y, gr);
+      g.addColorStop(0, `rgba(255,248,210,${0.5 * a + 0.2})`); g.addColorStop(1, 'rgba(255,240,180,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(f.x, f.y, gr, 0, TAU); ctx.fill();
+    }
+  }
+}
+const mini = { pos: [], box: null };   // 画面の端の小さな木：つぼみの画面の位置（光の粒の行き先）
+function drawMiniTree(ax, ay, aw, ah, compact) {   // 画面の右上の、小さな木。光ったつぼみ／まだのつぼみ（クリアまでは白い輪、その先は金の輪）が、文字なしで分かる
+  if (!tree.buds.length) return;
+  if (compact) return drawBudRow(ax, aw);             // スマホ・小さな窓：上の2段目に、1本の枝とつぼみ（★の目盛りがあった所）
+  const H = touchUI ? 100 : compact ? 104 : 128, k = H / (tree.h * 1.12), SX = 1.5, Wb = tree.w * k * SX + 26, x0 = ax + aw - Wb - 6, y0 = ay + 6;   // 横に SX 倍広げて、つぼみが重ならないように
+  const ox = x0 + Wb / 2 - tree.x * k * SX, oy = y0 + H - 6 - tree.y * k + tree.h * k * 0.02;
+  mini.box = { x: x0, y: y0, w: Wb, h: H };
+  ctx.fillStyle = 'rgba(20,16,12,0.72)'; ctx.beginPath(); ctx.roundRect(x0, y0, Wb, H, 12); ctx.fill();
+  ctx.save(); ctx.translate(ox, oy); ctx.scale(k * SX, k);
+  ctx.lineCap = 'round'; ctx.strokeStyle = 'rgb(150,132,116)';
+  for (const [x1, y1, x2, y2, w] of tree.branches) { ctx.lineWidth = Math.max(w, 2.2 / k); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
+  ctx.lineCap = 'butt'; ctx.restore();
+  const beat = Math.pow(1 - beatPhase(), 2), r = (touchUI ? 6.5 : 7) * (tree.buds.length > 8 ? 0.86 : 1);
+  mini.pos = tree.buds.map((bd, i) => {
+    const x = ox + bd.x * k * SX, y = oy + bd.y * k, B = song.bloom, f = B && B.list[i];
+    if (f && f.open > 0) drawFlower(x, y, r * 1.6, f.open, i);
+    else {
+      drawBud(x, y, r, i < buds.lit, bd.gold, beat, clock - (buds.litAt[i] ?? -9));
+      if (i >= buds.lit) { ctx.strokeStyle = bd.gold ? 'rgba(240,195,70,0.95)' : 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 3, 0, TAU); ctx.stroke(); }   // まだのつぼみの輪（白：クリアまで／金：その先）
+    }
+    return [x, y];
+  });
+}
+function drawGlowArrow(ax, ay, aw, ah) {   // 光る列が画面の外にあるとき：画面の端に、その向きの白い矢印と、光る列の絵（3つの宝石を光る糸でつないだ絵）
+  if (songOver) return;
+  const VS = view.VS;
+  for (const list of Object.values(glowSets())) {
+    if (list.some(f => { const sx = view.ox + f.x * VS, sy = view.oy + f.y * VS; return sx > ax && sx < ax + aw && sy > ay && sy < ay + ah; })) continue;   // 1つでも見えていれば、出さない
+    const f = list.reduce((a, b) => (Math.hypot(b.x - ham.x, b.y - ham.y) < Math.hypot(a.x - ham.x, a.y - ham.y) ? b : a));
+    const sx = view.ox + f.x * VS, sy = view.oy + f.y * VS, cx = ax + aw / 2, cy = ay + ah / 2, dx = sx - cx, dy = sy - cy, ins = 30;
+    const t = Math.min(Math.abs((aw / 2 - ins) / (dx || 1e-6)), Math.abs((ah / 2 - ins) / (dy || 1e-6))), x = cx + dx * t, y = cy + dy * t, a = Math.atan2(dy, dx);
+    const r = 15 * (1 + 0.08 * Math.pow(1 - beatPhase(), 2));
+    ctx.save(); ctx.translate(x, y); ctx.rotate(a);
+    ctx.fillStyle = '#fff6d0'; ctx.strokeStyle = 'rgba(60,40,10,0.8)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(r + 12, 0); ctx.lineTo(r + 1, -7); ctx.lineTo(r + 1, 7); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.restore();
+    const g = ctx.createRadialGradient(x, y, 2, x, y, r + 8); g.addColorStop(0, 'rgba(255,248,210,0.95)'); g.addColorStop(1, 'rgba(255,240,180,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r + 8, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(30,26,20,0.75)'; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,246,200,0.95)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x - r * 0.55, y + r * 0.3); ctx.lineTo(x, y - r * 0.2); ctx.lineTo(x + r * 0.55, y + r * 0.3); ctx.stroke();
+    for (const [u, v] of [[-0.55, 0.3], [0, -0.2], [0.55, 0.3]]) paintFood(f, x + u * r, y + v * r, r * 0.42, 0);
+  }
+}
+function drawBudRow(ax, aw) {   // スマホ：上の2段目に、左はしの小さな木の絵と、1本の枝につぼみを横に並べる
+  const y = 22 + 34, x0 = ax + 30, x1 = ax + aw - 12, n = tree.buds.length, gap = (x1 - x0) / Math.max(1, n - 1), r = clamp(gap * 0.3, 5, 7.5), beat = Math.pow(1 - beatPhase(), 2), B = song.bloom;
+  ctx.strokeStyle = 'rgb(150,132,116)'; ctx.lineCap = 'round';
+  ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(ax + 10, y + 9); ctx.lineTo(ax + 10, y - 3); ctx.stroke();              // 小さな木の絵（幹と枝）
+  ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(ax + 10, y - 1); ctx.lineTo(ax + 4, y - 8); ctx.moveTo(ax + 10, y - 2); ctx.lineTo(ax + 17, y - 9); ctx.moveTo(ax + 10, y - 3); ctx.lineTo(ax + 10, y - 11); ctx.stroke();
+  ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(ax + 14, y + 2); ctx.lineTo(x1 + 4, y + 2); ctx.stroke(); ctx.lineCap = 'butt';   // つぼみの枝
+  mini.pos = tree.buds.map((bd, i) => {
+    const x = x0 + i * gap, f = B && B.list[i];
+    if (f && f.open > 0) drawFlower(x, y, r * 1.6, f.open, i);
+    else {
+      drawBud(x, y, r, i < buds.lit, bd.gold, beat, clock - (buds.litAt[i] ?? -9));
+      if (i >= buds.lit) { ctx.strokeStyle = bd.gold ? 'rgba(240,195,70,0.95)' : 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 3, 0, TAU); ctx.stroke(); }
+    }
+    return [x, y];
+  });
+}
+function drawBudFly() {   // 光の粒：取り切った所から、小さな木のつぼみへ（弧を描いて。着いたら、つぼみが光る）
+  for (const p of buds.fly) {
+    const to = mini.pos[p.k]; if (!to) continue;
+    const u = clamp(p.t / p.T, 0, 1), e = u * u * (3 - 2 * u), sx = view.ox + p.x * view.VS, sy = view.oy + p.y * view.VS;
+    if (p.done) { const q = (p.t - p.T) / 0.3; ctx.strokeStyle = `rgba(255,240,170,${1 - q})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(to[0], to[1], 8 + 18 * q, 0, TAU); ctx.stroke(); continue; }
+    const mx = (sx + to[0]) / 2, my = Math.min(sy, to[1]) - 60, x = (1 - e) * (1 - e) * sx + 2 * e * (1 - e) * mx + e * e * to[0], y = (1 - e) * (1 - e) * sy + 2 * e * (1 - e) * my + e * e * to[1];
+    const g = ctx.createRadialGradient(x, y, 1, x, y, 16); g.addColorStop(0, 'rgba(255,250,220,1)'); g.addColorStop(1, 'rgba(255,220,120,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 16, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, 4, 0, TAU); ctx.fill();
+  }
 }
 // 巣の宝の山：k 番目の物の置き場所（いまの山の大きさ total の中に、真ん中ほど多く）
 function pileSpot(k, total) {
@@ -1001,7 +1376,8 @@ const pileR = n => Math.min(C.PILE_MAX_R, 12 + C.PILE_GROW * Math.sqrt(n));   //
 const hash = n => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 // 巣の山の上（とそのまわり）には、食べ物を生やさない・降らせない
 const pileClear = () => pileR(nest.total) + 14;
-const onPile = (x, y, w) => { const R = pileClear() + w / 2; return ((x - C.FIELD_W / 2) / R) ** 2 + ((y - C.FIELD_H / 2) / (R * 0.85 + w * 0.08)) ** 2 < 1; };
+const onPile = (x, y, w) => { const R = pileClear() + w / 2; return ((x - C.FIELD_W / 2) / R) ** 2 + ((y - C.FIELD_H / 2) / (R * 0.85 + w * 0.08)) ** 2 < 1 || onTree(x, y, w); };
+const onTree = (x, y, w) => { const z = tree.zone; return !!z && x + w / 2 > z.x0 && x - w / 2 < z.x1 && y + w / 2 > z.y0 && y - w / 2 < z.y1; };   // 木（幹と枝）の所
 // 1曲の結果：宝の数、巣の山、次に遊ぶ曲を出して保存する
 function finishSong() {
   songOver = true; ham.shiver = 0;
@@ -1011,8 +1387,9 @@ function finishSong() {
   const nw = newSong();
   song.pick = nw >= 0 ? nw : (song.idx + 1) % SONGS.length;   // いちばん目立たせる曲：次の新しい曲（全部遊んだら、次の順番の曲）
   const stars = starsOf(song.burstN), prev = best[song.idx], rec = !!prev && song.burstN > prev.n;   // 新記録：前の自己ベストを超えたとき
-  if (!prev || song.burstN > prev.n) best[song.idx] = { n: song.burstN, stars };
-  song.result = { gained: song.burstN, total: nest.total, n: song.n, name: S.name, stageUp: song.stageUp, stars, prev, rec };
+  const lv = song.bloom ? song.bloom.level : 'part', blv = prev && (LV_RANK[prev.lv] || 1) > LV_RANK[lv] ? prev.lv : lv;   // 咲き方（いちばんよかったもの）も覚えておく
+  if (!prev || song.burstN > prev.n) best[song.idx] = { n: song.burstN, stars, lv: blv }; else prev.lv = blv;
+  song.result = { gained: song.burstN, total: nest.total, n: song.n, name: S.name, stageUp: song.stageUp, stars, prev, rec, lv };
   saveNow(song.n, song.pick);                        // 次に開いたときは、次の曲から
   showResult();
 }
@@ -1049,8 +1426,12 @@ function reset() {
   palsReset();                                              // バンドの仲間：1人目から
   earlyCd = 0;
   document.body.style.background = S.look.bg;               // 広場の外の色も、曲に合わせて
-  Object.assign(cam, { x: ham.x, y: ham.y, zoom: zoomFor(ham.body), lx: 0, ly: 0, vx: 0, vy: 0, wide: 0, fast: false, push: 0, pv: 0 });
+  Object.assign(cam, { x: ham.x, y: ham.y, zoom: zoomFor(ham.body), lx: 0, ly: 0, vx: 0, vy: 0, wide: 0, fast: false, push: 0, pv: 0, focus: 0 });
+  if (song.bloomBus) { try { song.bloomBus.gain.value = 0; song.bloomBus.disconnect(); } catch (e) { /* もう止まっている */ } }   // 締めの花の音を止める（途中でやめたとき）
+  Object.assign(song, { hop: null, bloom: null, bloomBus: null, burstClock: null }); ham.z = 0;
+  if (song.pileDirty) { pileCanvas = null; song.pileDirty = false; }   // 前の曲で木に吸いこまれた宝も、巣の山に描く
   chargeReset();
+  treePlace(); Object.assign(buds, { got: 0, lit: 0, fly: [], log: [], litAt: [], pitch: 0, offerAt: 0, glowAt: 0 }); bot.goal = null;   // 木とつぼみ（25回目）
   if (AC && soundMode === 'music' && !mus.timer) musicStart();
   hideResult();
   clusterSeq = 0; placeMiss = 0;
@@ -1063,6 +1444,7 @@ function reset() {
     else if (lookOf(s, h, false, look) === 'soft' && s < C.FLOW_FROM && !near) continue;
     else for (let i = 0; i < n; i++) list.push({ s, h, near, look });
   }
+  tutorRow();                                               // 最初の1本：すぐ近くに、短い宝石の列（25回目）
   gems.sort((a, b) => b.h - a.h).forEach(g => spawnGroup(g.s, g.h, g.kind, g.n, true));
   makeFlows(C.FLOWS);
   list.sort((a, b) => b.s - a.s).forEach(f => spawnFood(f.s, f.h, false, true, f.near, f.look));
@@ -1505,14 +1887,14 @@ function eat(f) {
   });
   // 手触り：大きい物ほど大きく弾み、大きい音（触れて食べても同じ）。自分に近い大きさの物だけ画面も揺れる
   const ratio = clamp(f.s / ham.body, 0, 1);
-  squash(ham.face, lerp(C.SQUASH_EAT_SMALL, C.SQUASH_EAT_BIG, ratio));
+  squash(ham.face, lerp(C.SQUASH_EAT_SMALL, C.SQUASH_EAT_BIG, ratio) * (song.part === 'finale' ? 0.25 : 1));   // 締めの間は、つぶれを小さく（24回目の質問2の答え。ほっぺがふくらむのが見えるように）
   if (!f.special && ratio >= C.SHAKE_BIG_FROM && clock - lastShakeAt >= C.SHAKE_BIG_COOLDOWN) { shake = Math.max(shake, C.SHAKE_BIG); lastShakeAt = clock; }
   rings.push({ x: f.x, y: f.y, r0: f.w * 0.5, grow: 10 + f.w * 0.4, t: 0, life: 0.22, width: 2.5, color: '255,250,220' });
   if (f.cluster) groupEat(f, ratio);
   else if (f.special) specialEat(f);
   else { if (f.flow && flows[f.flow]) f.flowLast = !foods.some(o => o.flow === f.flow); sfxEat(ratio, kindOf(f.s, f.h), f.x, f.y, f); }
   if (f.flow && flows[f.flow] && !foods.some(o => o.flow === f.flow)) {   // 流れを全部食べ切った：「ドン」と締めて、別の所に流れの形で生え直す
-    flowDone(f.x, f.y); delete flows[f.flow];
+    flowDone(f.x, f.y); budEarn(f.x, f.y, 'f' + f.flow); delete flows[f.flow];   // 流れを取り切った：つぼみが1つ光る（25回目）
     respawns.push({ flow: true, t: C.RESPAWN_SEC * (0.7 + Math.random() * 0.6) });
   }
 }
@@ -1527,6 +1909,7 @@ function groupEat(f, ratio) {
     if (g.kind === 'row') rowNote(g, done, f.x, f.y, f); else blobNote(g, done, f.cluster, f.chain ? f.chain.snd : undefined, f.x, f.y);
   } else if (done && g.kind === 'blob') sparks.push({ x: g.sx / g.eaten, y: g.sy / g.eaten, t: 0, life: 0.8, s: 8 + 3 * g.n });
   if (g.kind === 'blob' && C.CHAIN && !f.chain && !done) startChain(f);
+  if (done && g.kind === 'row') budEarn(f.suck ? f.suck.x0 : f.x, f.suck ? f.suck.y0 : f.y, 'r' + f.cluster);   // 光る列を取り切った：つぼみが1つ光る（25回目）
   if (done) {
     delete groups[f.cluster];
     respawns.push({ s: g.s, h: g.h, group: g.kind, n: g.n, t: C.RESPAWN_SEC * (0.7 + Math.random() * 0.6) });
@@ -1883,7 +2266,7 @@ function palsTick(dt) {
         q.x += (tx - q.x) * k; q.y += (ty - q.y) * k;
       }
       j++;
-    } else if (q.state === 'party') {   // 締め：巣のまわりで喜ぶ
+    } else if (q.state === 'party' || q.state === 'dance' || q.state === 'sit') {   // 締め：木の下で喜ぶ・踊る・座る
       q.t += dt; const k = 1 - Math.exp(-dt * 3); q.x += (q.px - q.x) * k; q.y += (q.py - q.y) * k;
     } else if (q.state === 'gone') q.t += dt;
   }
@@ -1898,10 +2281,11 @@ function palsChorus() {   // サビ：まだ会えていない仲間は消える
   if (p && p.state === 'wait') { p.state = 'gone'; p.t = 0; rings.push({ x: p.x, y: p.y, r0: palR(), grow: 24, t: 0, life: 0.4, width: 3, color: '255,255,255' }); }
   pals.cur = null;
 }
-function palsParty() {   // 締め：噴き出した宝が巣に積もるとき、ついて歩いていた仲間も、巣のまわりで喜ぶ
-  const fol = pals.list.filter(q => q.state === 'join' || q.state === 'follow'), R = pileR(nest.total + song.burstN) * 0.95 + palR() + 20;
-  fol.forEach((q, n) => { const a = -Math.PI / 2 + (n - (fol.length - 1) / 2) * 0.55 + Math.PI; q.state = 'party'; q.t = 0; q.px = C.FIELD_W / 2 + Math.cos(a) * R; q.py = C.FIELD_H / 2 - Math.sin(a) * R * 0.85; });
+function palsParty() {   // 締め：噴き出したとき、ついて歩いていた仲間も、木の下へ（25回目。左右に分かれて）
+  const fol = pals.list.filter(q => q.state === 'join' || q.state === 'follow'), R = palR();
+  fol.forEach((q, n) => { const side = n % 2 ? 1 : -1, k = Math.floor(n / 2); q.state = 'party'; q.t = 0; q.px = tree.x + side * (tree.h * 0.16 + R * 1.4 + k * R * 2.3); q.py = tree.y + R * 0.4 + (k % 2) * R * 0.9; });
 }
+const palsTo = st => { for (const q of pals.list) if (q.state === 'party' || q.state === 'dance' || q.state === 'sit') { q.state = st; q.t = 0; } };   // 'dance' 木のまわりで踊る ／ 'sit' 木の下に座る
 function palsWarp() {   // スタート地点に戻った：ついて歩く仲間も、すぐそばへ
   pals.trail = [];
   for (const q of pals.list) if (q.state === 'follow' || q.state === 'join') { q.x = ham.x; q.y = ham.y; }
@@ -1976,7 +2360,7 @@ function update(dt) {
   else if (ptr.down) { [ix, iy, mag] = pointerSteer(); how = 'finger'; }
   else if (tiltOn()) { [ix, iy, mag] = tiltSteer(); how = tilt.mode; }
   if (ham.shiver) mag *= 0.15;                           // ためている間は、ほとんど動かない
-  if (C.CHARGE && chargeLive()) mag = 0;                // ため：締めに入ったら、押していてもいなくても、その場に止まって、ためる体勢
+  if (song.part === 'finale' && !song.burst) mag = 0;  // 締め：木の前で、押していてもいなくても止まって、ためる体勢（25回目から、ためOFF でも）
   if (mag > 0) started = true;
   ham.ix = ix; ham.iy = iy;
   const speed = C.MOVE_SPEED + C.MOVE_SPEED_PER_BODY * ham.body, rolling = how === 'roll' && !ham.shiver;
@@ -1991,6 +2375,12 @@ function update(dt) {
     ham.vx += (ix * mag * speed - ham.vx) * k; ham.vy += (iy * mag * speed - ham.vy) * k;
   }
   ham.x += ham.vx * dt; ham.y += ham.vy * dt;
+  if (song.hop) {                                        // 締め：木の前へ、ぴょんと（ふわっと弧を描いて。着いたら、ぽよん）
+    const h = song.hop, u = clamp((clock - h.t0) / h.T, 0, 1), e = u * u * (3 - 2 * u);
+    ham.x = lerp(h.x0, h.x1, e); ham.y = lerp(h.y0, h.y1, e); ham.vx = ham.vy = 0; ham.z = Math.sin(u * Math.PI) * h.H;
+    ham.face += Math.atan2(Math.sin(-Math.PI / 2 - ham.face), Math.cos(-Math.PI / 2 - ham.face)) * (1 - Math.exp(-dt * 8));   // 木の方を向く
+    if (u >= 1) { song.hop = null; ham.z = 0; squash(Math.PI / 2, 0.25); }
+  }
   ham.r += (hamD(ham.body) / 2 - ham.r) * (1 - Math.exp(-dt * 5));
   ham.x = clamp(ham.x, ham.r, C.FIELD_W - ham.r);
   ham.y = clamp(ham.y, ham.r, C.FIELD_H - ham.r);
@@ -2036,9 +2426,11 @@ function update(dt) {
       if (f.crack > 0) f.crack = Math.max(0, f.crack - dt / 0.35);
     }
     if (f.shake > 0) f.shake -= dt;
+    if (f.fade !== undefined) f.fade -= dt / 0.9;          // 噴き出したあと：ふわっと消える
     if (f.msgCd > 0) f.msgCd -= dt;
     if (f.hitCd > 0) f.hitCd -= dt;
   }
+  if (song.burst && foods.some(f => f.fade <= 0)) foods = foods.filter(f => !(f.fade <= 0));
   keepGaps(dt);
   pushStep(dt);                          // 押された物：跳ねるように動いて、だんだん止まる
   for (let pass = 0; pass < 2; pass++) {   // 2つの物に同時に触れていても、両方から押し出す
@@ -2053,7 +2445,7 @@ function update(dt) {
   }
   input.eatQueued = false;
   // 触れた瞬間に食べる（A：十分小さい物だけ ／ B：食べられる物は全部）
-  const canMunch = !songOver && !song.burst && !ham.shiver;
+  const canMunch = !songOver && !song.burst && !ham.shiver && !(ham.z > 0);   // 跳んでいる間は食べない
   if (canMunch) {
     for (const f of foods.slice()) {
       if (f.born < 1 || f.suck || !(eatMode === 'B' ? f.edible : canTouchEat(f)) || rectDist(f, ham.x, ham.y) >= ham.r) continue;
@@ -2107,6 +2499,8 @@ function update(dt) {
   starTick(dt);
   bandTick(dt);
   palsTick(dt);                          // バンドの仲間（現れる・仲間になる・ついて歩く）
+  budsTick(dt);                          // 光の粒が小さな木へ（25回目）
+  glowTick();                            // 次に光る列・流れ（25回目）
   earlyGem(dt);                          // 序盤：食べられる宝石を、いつも近くに1つ
   for (const g of rings) g.t += dt;
   rings = rings.filter(g => g.t < g.life);
@@ -2115,7 +2509,8 @@ function update(dt) {
   noteFxTick(dt);                        // 演奏：鳴った音の、音符の光
   // 噴き出した物：放物線で巣へ。着いたら宝の山に積もって、ドの和音のきらきらが上から下へ
   endingTick();                          // 効果音モードの、締めの最後の音
-  for (const p of flyers) { p.t = song.t - p.start; if (p.t >= p.T) { p.done = true; nestAdd(p); if (!p.last) rainNote(); } }   // 最後の宝は、積もる音の代わりに最後の1音
+  for (const p of flyers) { p.t = song.t - p.start; if (p.t >= p.T) { p.done = true; nestAdd(p); rainNote(); } }   // 木に吸いこまれた宝も、巣の数に足す
+  bloomTick(dt);                         // 締めの花・色が戻る・仲間・花びら（25回目）
   if (flyers.length) flyers = flyers.filter(p => !p.done);
 }
 
@@ -2150,7 +2545,8 @@ function updateCamera(dt) {
   // ばねで、なめらかに追う（急に向きを変えても、ぐいっと振らない）
   cam.vx += ((tx - cam.x) * w * w - 2 * w * cam.vx) * dt; cam.vy += ((ty - cam.y) * w * w - 2 * w * cam.vy) * dt;
   cam.x += cam.vx * dt; cam.y += cam.vy * dt;
-  if (cam.push > 0.05) { const k = (1 - Math.exp(-dt * 14)) * Math.min(1, cam.push); cam.x += (ham.x - cam.x) * k; cam.y += (ham.y - cam.y) * k; cam.vx *= 1 - k; cam.vy *= 1 - k; }   // ため：ハムスターをまん中に
+  if (cam.push > 0.05) { const k = (1 - Math.exp(-dt * 14)) * Math.min(1, cam.push), fy = lerp(ham.y, tree.y - tree.h * 0.5, 0.3); cam.x += (ham.x - cam.x) * k; cam.y += (fy - cam.y) * k; cam.vx *= 1 - k; cam.vy *= 1 - k; }   // ため：ハムスターをまん中に（木も見えるように、少し上）
+  cam.focus += ((song.burst && clock - (song.burstClock ?? clock) > 0.45 ? 1 : 0) - cam.focus) * (1 - Math.exp(-dt * 1.4));   // 噴き出したあと：木が主役（25回目）
   for (const [a, va, size, FS] of [['x', 'vx', vw, C.FIELD_W], ['y', 'vy', vh, C.FIELD_H]]) {
     const edge = Math.max(0, size / 2 - ham.r - 12), d = ham[a] - cam[a];
     if (Math.abs(d) > edge) cam[a] = ham[a] - Math.sign(d) * edge;               // 画面の外には出さない
@@ -2215,10 +2611,15 @@ function render() {
   const ax = PAD, ay = TOP, aw = Math.max(1, W - PAD * 2), ah = Math.max(1, H - TOP - BOTTOM - PAD);
   const full = Math.min(aw / C.FIELD_W, ah / C.FIELD_H), cover = Math.max(aw / C.FIELD_W, ah / C.FIELD_H);
   //   サビと締めでは、広場全体が見えるまで引く（cam.wide）
-  const VS = full * lerp(Math.max(1, Math.sqrt(cover / full / 1.3)), 1, cam.wide) * cam.zoom * (touchUI ? lerp(C.CAM_ZOOM_TOUCH, 1, cam.wide) : 1) * clamp(1 + C.CHARGE_ZOOM * cam.push, 0.72, 3);   // ため：寄る・噴き出すと勢いよく引く
+  let VS = full * lerp(Math.max(1, Math.sqrt(cover / full / 1.3)), 1, cam.wide) * cam.zoom * (touchUI ? lerp(C.CAM_ZOOM_TOUCH, 1, cam.wide) : 1) * clamp(1 + C.CHARGE_ZOOM * cam.push, 0.72, 3);   // ため：寄る・噴き出すと勢いよく引く
+  let fx = cam.x, fy = cam.y;
+  if (cam.focus > 0.001) {                               // 噴き出したあと：木のまん中へ、木が大きく見えるまで（色の波が広がるときは、少し引く）
+    const B = song.bloom, span = tree.h * (B && B.wave > 0 ? 2.7 : 1.95) * (touchUI ? 0.85 : 1), e = cam.focus * cam.focus * (3 - 2 * cam.focus);
+    VS = lerp(VS, Math.min(ah / span, aw / (tree.w * (touchUI ? 1.35 : 2.4))), e); fx = lerp(cam.x, tree.x, e); fy = lerp(cam.y, tree.y - tree.h * 0.38, e);
+  }
   const hw = aw / 2 / VS, hh = ah / 2 / VS;
-  const cx = C.FIELD_W > hw * 2 ? clamp(cam.x, hw, C.FIELD_W - hw) : C.FIELD_W / 2;
-  const cy = C.FIELD_H > hh * 2 ? clamp(cam.y, hh, C.FIELD_H - hh) : C.FIELD_H / 2;
+  const cx = C.FIELD_W > hw * 2 ? clamp(fx, hw, C.FIELD_W - hw) : C.FIELD_W / 2;
+  const cy = C.FIELD_H > hh * 2 ? clamp(fy, hh, C.FIELD_H - hh) : C.FIELD_H / 2;
   const sx = shake * Math.sin(clock * 71), sy = shake * Math.cos(clock * 53);   // 画面の揺れ
   const ox = ax + aw / 2 - cx * VS + sx, oy = ay + ah / 2 - cy * VS + sy;
   Object.assign(view, { VS, ox, oy, x0: ax, y0: ay, w: aw, h: ah });
@@ -2226,14 +2627,17 @@ function render() {
   ctx.beginPath(); ctx.rect(ax, ay, aw, ah); ctx.clip();
   ctx.setTransform(dpr * VS, 0, 0, dpr * VS, dpr * ox, dpr * oy);
 
-  const gc = S.look.ground, ge = S.look.edge;            // 地面の色は、曲の雰囲気に合わせて
+  const gc = dullCol(S.look.ground, C.DULL), ge = dullCol(S.look.edge, C.DULL);   // 地面の色は、曲の雰囲気に合わせて。最初は、くすんだ色（25回目）
   ctx.fillStyle = gc; ctx.fillRect(0, 0, C.FIELD_W, C.FIELD_H);
+  drawColorBack();                                       // 花が咲いた所から、色が戻る
   ctx.strokeStyle = ge; ctx.lineWidth = 3; ctx.strokeRect(0, 0, C.FIELD_W, C.FIELD_H);
   if (song.part === 'build' || feast()) {               // ため・サビ：広場のふちが拍に合わせて光る
     const a = Math.pow(1 - beatPhase(), 2) * (song.part === 'build' ? 0.9 : 0.55);
     ctx.strokeStyle = `rgba(${S.look.glow},${a})`; ctx.lineWidth = (6 + 6 * a) / VS; ctx.strokeRect(0, 0, C.FIELD_W, C.FIELD_H);
   }
+  drawTree();                                // 枯れた木とつぼみ（巣の山より奥）
   drawNest();
+  drawGlowRows();                            // 光る列（その下に、光る糸）
   drawFoods();
   drawPals();                                // バンドの仲間（ついて歩く仲間は、ハムスターの後ろ）
   if (C.CHARGE && chargeLive()) drawChargeGlow();   // ため：ハムスターが光る
@@ -2247,7 +2651,7 @@ function render() {
   }
   if (C.SHOW_LABELS || helpOpen) drawLabels((compact ? 12 : 14) / VS);   // 食べ物の数値は、ふだんは出さない
   if (song.nestShow > 0) {                  // 曲の始まり：曲名と、巣の山と宝の合計（1〜2秒だけ。操作のじゃまはしない）
-    const a = clamp(song.nestShow / 0.5, 0, 1), R = Math.max(22, pileR(nest.total)), ty = C.FIELD_H / 2 - R * 0.86 - (stageOf(nest.total) >= 4 ? R * 0.9 : 8) - 18 / VS;
+    const a = clamp(song.nestShow / 0.5, 0, 1), R = Math.max(22, pileR(nest.total)), ty = C.FIELD_H / 2 + R * 0.86 + 120 / VS;   // 巣の下に（上は木。指の絵より下）
     ctx.globalAlpha = a; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.lineJoin = 'round';
     const t1 = `♪ ${S.name}`, t2 = `${stageName(nest.total)}　宝 ${nest.total}`;
     ctx.font = `bold ${20 / VS}px ${FONT}`; ctx.lineWidth = 5 / VS; ctx.strokeStyle = 'rgba(0,0,0,0.7)';
@@ -2279,12 +2683,16 @@ function render() {
     ctx.globalAlpha = 1;
   }
   drawNoteFx();                             // 演奏：鳴った音の、音符の光
+  drawPetals();                             // 満開：花びらが舞う（25回目）
   ctx.globalAlpha = 1;
   ctx.restore();
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   drawPalArrow(ax, ay, aw, ah);                          // 次の仲間が画面の外にいるときの矢印
+  drawGlowArrow(ax, ay, aw, ah);                         // 光る列が画面の外にあるときの矢印（25回目）
   drawHUD(W, compact);
+  drawMiniTree(ax, ay, aw, ah, compact);                 // 画面の端の、小さな木（25回目。★の目盛りの代わり）
+  drawBudFly();                                          // 取り切った所から、小さな木へ飛ぶ光の粒
   drawSongBand(W, BAND);
   const rowY = !touchUI ? H - 23 : between ? H - 8 - 19 : H - 8 - 38 - 22;
   const rx0 = between ? (padL.offsetWidth || 0) + 18 : PAD + 2, rx1 = between ? W - (padR.offsetWidth || 0) - 18 : W - PAD - 2 - (touchUI ? 0 : 46);
@@ -2320,12 +2728,12 @@ function drawHUD(W, compact) {
     const cw = (W - 20) / 2, isz = 16, bw = clamp(cw - isz - 8 - 34, 36, 190), y1 = oy + 13, y2 = oy + 33;
     paintFood(NEED_FRUIT, 10 + isz / 2, y1, isz, 0); bar(10 + isz + 6, y1, ham.body, G, '#e9a35b', hud.flashB, false, bw, 10); num(ham.body.toFixed(1), 10 + isz + 10 + bw, y1, 12);
     paintFood(NEED_GEM, 10 + cw + isz / 2, y1, isz * 0.9, 0); bar(10 + cw + isz + 6, y1, ham.teeth, G, '#8fc8ff', hud.flashT, false, bw, 10); num(ham.teeth.toFixed(1), 10 + cw + isz + 10 + bw, y1, 12);
-    drawStars(10 + isz + 6, y2, cw + bw, 9);   // ★の目盛り：2列ぶんの幅で
+    void y2;   // ★の目盛りは、25回目に消した（画面の端の小さな木に置きかえ）
   } else {
     const x0 = 16, isz = 20, bw = 170, y1 = oy + 20, y2 = oy + 44, x1 = 330;
     paintFood(NEED_FRUIT, x0 + isz / 2, y1, isz, 0); bar(x0 + isz + 8, y1, ham.body, G, '#e9a35b', hud.flashB, false, bw, 12); num(ham.body.toFixed(2), x0 + isz + 16 + bw, y1, 14);
     paintFood(NEED_GEM, x0 + isz / 2, y2, isz * 0.9, 0); bar(x0 + isz + 8, y2, ham.teeth, G, '#8fc8ff', hud.flashT, false, bw, 12); num(ham.teeth.toFixed(2), x0 + isz + 16 + bw, y2, 14);
-    drawStars(x1 + isz + 8, (y1 + y2) / 2, bw, 13);   // ★の目盛り：体と歯の目盛りの右に
+    void x1;   // ★の目盛りは、25回目に消した（画面の端の小さな木に置きかえ）
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     ctx.font = `600 15px ${FONT}`; ctx.fillStyle = '#e8e8e8'; ctx.fillText(`♪ ${S.name}`, W - 16, y1);
     ctx.font = `13px ${FONT}`; ctx.fillStyle = '#bbb'; ctx.fillText(`巣 ${nest.total}${BOT ? `　自動 ×${SIM_SPEED}` : ''}`, W - 16, y2);
@@ -2355,7 +2763,7 @@ function drawStars(x, y, w, h) {
 // 下の段：いまの目標の一言（育てよう → サビへ！ → 食べまくれ！ → せーの… → 宝が巣へ！）と、その左右にバンドの顔ぶれ
 function goalText() {
   if (!started || songOver) return '';
-  if (song.burst) return '宝が巣へ！';
+  if (song.burst) return '咲け！';   // 25回目：宝は木へ
   if (song.part === 'finale') return 'せーの…';
   if (song.part === 'chorus') return '食べまくれ！';
   if (song.part === 'build') return 'サビへ！';
@@ -2490,8 +2898,9 @@ function drawChargeGlow() {   // ため：ハムスターのまわりが光る�
   g.addColorStop(0, `rgba(255,245,170,${a})`); g.addColorStop(1, 'rgba(255,220,120,0)');
   ctx.fillStyle = g; ctx.beginPath(); ctx.arc(ham.x, ham.y, R, 0, TAU); ctx.fill();
 }
-function drawFinaleSpot() {   // 締め：まわりを少し暗くして、ハムスター（とほっぺ）だけを明るく
-  const VS = view.VS, hx = view.ox + ham.x * VS, hy = view.oy + ham.y * VS, R1 = ham.r * VS * 2.75 + 14, R2 = R1 + 120;   // ほっぺのすぐ外から、120px で暗く
+function drawFinaleSpot() {   // 締め：まわりを少し暗くして、木とハムスター（とほっぺ）だけを明るく（25回目）
+  const VS = view.VS, tx = tree.x, ty = tree.y - tree.h * 0.5, mx = (tx + ham.x) / 2, my = (ty + ham.y) / 2, half = Math.hypot(ham.x - tx, ham.y - ty) / 2;
+  const R1 = (half + Math.max(tree.h * 0.55, ham.r * 2.4)) * VS + 14, R2 = R1 + 120, hx = view.ox + mx * VS, hy = view.oy + my * VS;   // 木とほっぺのすぐ外から、120px で暗く
   ctx.save(); ctx.beginPath(); ctx.rect(view.x0, view.y0, view.w, view.h); ctx.clip();
   const g = ctx.createRadialGradient(hx, hy, R1, hx, hy, R2);
   g.addColorStop(0, 'rgba(12,8,24,0)'); g.addColorStop(1, `rgba(12,8,24,${0.55 * charge.spot})`);
@@ -2592,13 +3001,15 @@ function nestAdd(p) {
   if (!pileCanvas) pileReset();
   const k = nest.total, before = stageOf(k);
   nest.total++; nest[p.look] = (nest[p.look] || 0) + 1;
-  pileDraw(p.look, k, nest.total);
+  if (p.tree) song.pileDirty = true;                 // 25回目：木に吸いこまれた宝は、数だけ巣に足す（山の絵は、次の曲で描き直す。いまは木が主役）
+  else pileDraw(p.look, k, nest.total);
   if (p.show) sparks.push({ x: p.tx, y: p.ty, t: 0, life: 0.35, s: 5 + Math.random() * 4 });
   if (stageOf(nest.total) > before) stageUp(stageOf(nest.total));
 }
-function stageUp(s) {   // 段階が上がった：短くお祝い
+function stageUp(s) {   // 段階が上がった：短くお祝い（締めの花の間は、覚えておくだけ）
   const R = pileR(nest.total), cx = C.FIELD_W / 2, cy = C.FIELD_H / 2;
   song.stageUp = s;
+  if (song.burst) return;
   say(`${C.STAGES[s][1]}に！`, '#ffe14a', 3);
   rings.push({ x: cx, y: cy, r0: R * 0.6, grow: R * 0.9 + 60, t: 0, life: 1.1, width: 9, color: '255,225,120' });
   rings.push({ x: cx, y: cy, r0: R * 0.4, grow: R * 0.6 + 40, t: 0.15, life: 0.9, width: 4, color: '255,255,255' });
@@ -2663,7 +3074,8 @@ function drawFlyers() {
     if (p.t < 0 || !p.show) continue;
     const u = clamp(p.t / p.T, 0, 1), x = lerp(p.x0, p.tx, u), y = lerp(p.y0, p.ty, u), z = 4 * p.H * u * (1 - u);
     ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.beginPath(); ctx.ellipse(x, y, p.w * 0.5, p.w * 0.25, 0, 0, TAU); ctx.fill();
-    ctx.save(); ctx.translate(x, y - z); ctx.rotate(u * 6 + p.seed * 6); paintFood(p, 0, 0, p.w * (1 + 0.4 * Math.sin(u * Math.PI)), 0); ctx.restore();
+    const sk = p.tree && u > 0.75 ? 1 - (u - 0.75) / 0.25 * 0.85 : 1;   // 木に吸いこまれる：最後に小さく
+    ctx.save(); ctx.translate(x, y - z); ctx.rotate(u * 6 + p.seed * 6); paintFood(p, 0, 0, p.w * (1 + 0.4 * Math.sin(u * Math.PI)) * sk, 0); ctx.restore();
   }
   void VS;
 }
@@ -2899,6 +3311,8 @@ function drawPals() {   // 待っている仲間（その場で弾んで、手�
       const dp = audioNow() - (p.pulseAt ?? -9); if (dp >= 0 && dp < 0.24) hop += Math.sin(dp / 0.24 * Math.PI) * R * 0.5;
     }
     else if (p.state === 'party') { hop = songOver ? 0 : Math.abs(Math.sin(clock * 7 + p.i * 1.3)) * R * 0.7; happy = true; }   // 結果の画面では止まる
+    else if (p.state === 'dance') { const q = (beatPhase() + p.i * 0.25) % 1; hop = Math.sin(q * Math.PI) * R * 0.9; wave = Math.sin(clock * 8 + p.i) * 1.2; happy = true; }   // クリア：木のまわりで、拍に合わせて踊る
+    else if (p.state === 'sit') { sc = 0.92; }                                                          // 少し：木の下に、ちょこんと座る（責める感じにしない）
     ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.beginPath(); ctx.ellipse(p.x, p.y + R * 0.85, R * 0.75 * sc, R * 0.28 * sc, 0, 0, TAU); ctx.fill();   // 影
     drawPal(p.kind, p.x, p.y - hop, R * sc, { wave, happy });
     if (p.state === 'wait' || p.state === 'join') { const s = Math.max(R * 1.0, 18 / VS) * sc; drawPalInsts(p, p.x, p.y - hop - R * 0.95 * sc - s * 1.15, s); }   // 持ってくる楽器
@@ -2945,7 +3359,7 @@ function drawFoods() {
     }
     if (f.special) specialGlow(f, x, y, w, beat);
     if (f.path && dim < 0.5) { ctx.fillStyle = 'rgba(255,250,205,0.55)'; ctx.beginPath(); ctx.arc(x, y, w * 0.95 + 2 / VS, 0, TAU); ctx.fill(); }   // 食べ物の道：足もとが、ほんのり光る（ふつうの果物と見分ける）
-    ctx.globalAlpha = 1 - 0.4 * dim;                      // いま取れない物は、暗く少し半透明
+    ctx.globalAlpha = (1 - 0.4 * dim) * (f.fade !== undefined ? clamp(f.fade, 0, 1) : 1);   // いま取れない物は、暗く少し半透明（噴き出したあとは、消えていく）
     paintFood(f, x, y, w, dim);
     ctx.globalAlpha = 1;
     if (dim < 0.5 && (f.look === 'gem' || f.look === 'shell')) { ctx.lineWidth = 1.2; ctx.strokeStyle = 'rgba(30,20,15,0.6)'; ctx.strokeRect(x - w / 2, y - w / 2, w, w); }
@@ -2989,7 +3403,7 @@ function drawHamster() {
   const hop = C.WALK_HOP * ham.r * spd * Math.abs(Math.sin(clock * 8.5));   // 歩くとぴょこぴょこ跳ねる
   ctx.save();
   const jit = ham.shiver ? r * 0.07 : 0;                // ため：ぷるぷる震える
-  ctx.translate(ham.x + (Math.random() - 0.5) * jit, ham.y - hop + (Math.random() - 0.5) * jit);
+  ctx.translate(ham.x + (Math.random() - 0.5) * jit, ham.y - hop - (ham.z || 0) + (Math.random() - 0.5) * jit);   // ham.z：締めで、木の前へ跳ぶ高さ
   if (ham.shiver) { const q = 1 + 0.05 * Math.sin(clock * 60); ctx.scale(q, 2 - q); }
   // つぶしと伸ばし：食べた・ぶつかったときのばね（向き sqAng）と、歩いているときの伸び縮み（進む向き）
   ctx.rotate(ham.sqAng); ctx.scale(1 - ham.sq, 1 + ham.sq * 0.85); ctx.rotate(-ham.sqAng);
@@ -3117,21 +3531,22 @@ function drawLabels(fs) {
 let helpOpen = false, helpPaused = false;
 function helpHTML() {
   const on = v => v ? '入' : '切', k = t => `<kbd>${t}</kbd>`;
-  const rules = ['果物を食べると<b>体が大きく</b>、宝石を食べると<b>歯が硬く</b>なる（どんぐりは両方）',
+  const rules = ['<b>光る列を最後まで食べると、木のつぼみが光る。最後に木に向かって噴き出すと、花が咲く</b>（白い輪のつぼみが全部咲くとクリア、金の輪まで全部で満開）',
+    '果物を食べると<b>体が大きく</b>、宝石を食べると<b>歯が硬く</b>なる（どんぐりは両方）',
     '暗い物は、まだ食べられない。当たると吹き出しに、足りない方の絵が出る（果物＝大きさ、宝石＝歯）',
     C.PALS ? '広場で待っているバンドの仲間に会いに行くと、その仲間の楽器が加わって、後ろをついて歩く（果物の道をたどると会える。画面の外にいるときは、端に矢印）' : '体と歯が育つと、下のバンドの仲間が1人ずつ加わる（オレンジ＝果物で育つ楽器、青＝宝石で育つ楽器）',
-    '「ため」のあとのサビは食べ放題。頬袋の中の数が、上の★の目盛りを満たしていく（' + C.STARS.map((t, i) => `★${i + 1}：${t}個`).join('、') + '）',
-    C.CHARGE ? '締めは、その場に止まる。トントン押すたびにふくらみ、ためきったら、もう1回押すと噴き出す（頬袋の中身が巣へどばーっと降って、宝の山になる。山は大きくなると姿が変わる）'
-      : '曲の最後に、頬袋の中身を巣へ噴き出して、宝の山になる。山は大きくなると姿が変わる',
-    '宝石の列は、列ごとに違うフレーズになる（仲間がいれば、その仲間の楽器で）。かたまりは和音。果物は流れに並んでいて、1つの流れがベースのフレーズになり、食べ切ると「ドン」。テーマのメロディは、曲の締めでバンドが演奏する',
+    '「ため」のあとのサビは食べ放題。頬袋にためた分が、締めで噴き出す宝になる（宝は巣に足される。結果の画面の端の★：' + C.STARS.map((t, i) => `★${i + 1}：${t}個`).join('、') + '）',
+    C.CHARGE ? '締めは、木の前に移る。トントン押すたびにふくらみ、ためきったら、もう1回押すと、木に向かって噴き出す。光ったつぼみが、拍に合わせて花になって、テーマを鳴らす'
+      : '締めは、木の前に移って、木に向かって噴き出す。光ったつぼみが、拍に合わせて花になって、テーマを鳴らす',
+    '宝石の列は、列ごとに違うフレーズになる（仲間がいれば、その仲間の楽器で）。かたまりは和音。果物は流れに並んでいて、1つの流れがベースのフレーズになり、食べ切ると「ドン」。テーマのメロディは、締めで咲いた花が鳴らす',
     '食べている間だけバンドが厚くなる（食べるのをやめると、1小節で薄くなる）。サビで空から降る特別な食べ物は、サビに入ったときの体と歯の育ち方で変わる（体が大きい＝大きな実、歯が硬い＝結晶、両方＝両方と虹の実）'];
   const keys = touchUI ? ['指を置いた方へ走る', '「スタートへ」：スタート地点に戻る', '「曲を最初から」：2回押すと、この曲を最初から', '「音量」：音量', '⏸：一時停止（つづける・最初から・曲をえらぶ）',
-    C.CHARGE ? '締めは、その場に止まる。トントン押すたびにふくらみ、ためきったら、もう1回押すと噴き出す' : '締め：自動で噴き出す（ためOFF）'] :
+    C.CHARGE ? '締めは、木の前に移る。トントン押すたびにふくらみ、ためきったら、もう1回押すと、木に向かって噴き出す' : '締め：木の前で、自動で噴き出す（ためOFF）'] :
     [`${k('W A S D')} ${k('矢印')}：移動　マウス：押している間、その方へ走る`, `${k('R')}：スタート地点へ（長押しで、この曲を最初から）`,
      `${k('M')}：食べ方（いま ${eatMode}。A＝Space で食べる、B＝触れたら食べる）`, `${k('N')}：音楽／効果音（いま ${soundMode === 'music' ? '音楽' : '効果音'}）`,
      `${k('Esc')}：一時停止（つづける・最初から・曲をえらぶ）`, `${k('K')}：当たった物が動く（いま ${on(C.PUSH)}）　${k('J')}：かたまりの連鎖の吸い込み（いま ${on(C.CHAIN)}）`,
      `${k('V')}：演奏（いま ${C.PLAY ? '演奏ON' : '演奏OFF'}。食べている間だけ伴奏が厚くなる・鳴った音が光る）　${k('B')}：サビの特別な食べ物（いま ${C.SPECIAL ? '特別ON' : '特別OFF'}）`,
-     `${k('L')}：締めのため（いま ${C.CHARGE ? 'ためON。締めは、その場に止まる。クリックかスペースをトントン押すたびにふくらみ、ためきったら、もう1回押すと噴き出す' : 'ためOFF。締めで自動で噴き出す'}）`,
+     `${k('L')}：締めのため（いま ${C.CHARGE ? 'ためON。締めは、木の前に移る。クリックかスペースをトントン押すたびにふくらみ、ためきったら、もう1回押すと、木に向かって噴き出す' : 'ためOFF。締めで自動で噴き出す'}）`,
      `${k('P')}：バンドの仲間（いま ${C.PALS ? '仲間ON。会いに行くと楽器が増える' : '仲間OFF。体と歯が育つと楽器が増える'}）`,
      `${k('-')} ${k('=')}：全体の音量　${k('[')} ${k(']')}：音楽　${k(',')} ${k('.')}：効果音`, `${k('H')}：この説明（${k('Esc')} でもとじる）`];
   return '<h4>どうなればいい？</h4><ul>' + rules.map(r => `<li>${r}</li>`).join('') + '</ul><h4>操作</h4><ul>' + keys.map(r => `<li>${r}</li>`).join('') + '</ul>';
@@ -3150,28 +3565,36 @@ function closeHelp() {
 const $id = id => document.getElementById(id);
 let wipeArm = 0;
 const starHTML = n => [0, 1, 2].map(i => `<span class="${i < n ? 'on' : 'off'}">★</span>`).join('');
-function showResult() {
-  const r = song.result, b = best[song.idx], s = stageOf(r.total), nx = C.STAGES[s + 1];
-  $id('rTitle').textContent = `「${r.name}」`;
+const resUI = { focus: 1, list: false };   // 結果の画面：選んでいるボタン（0 もう一回／1 次の曲／2 曲をえらぶ）、曲の一覧を開いているか
+const LV_RANK = { part: 1, clear: 2, full: 3 };
+function showResult() {   // 25回目：木が主役。下に小さく、曲名・★・宝の数と、文字なしのボタン
+  const r = song.result;
+  $id('rTitle').textContent = r.name;
   $id('rStars').innerHTML = starHTML(r.stars);
-  $id('rGain').textContent = `宝 +${r.gained}`;
-  $id('rBest').className = 'best' + (r.rec ? ' rec' : '');
-  $id('rBest').innerHTML = r.rec ? '新記録！' : b ? `ベスト ${b.n} ${starHTML(b.stars)}` : '';
-  if (r.rec) sfxRecord();
-  $id('rUp').textContent = r.stageUp >= 0 ? `${C.STAGES[r.stageUp][1]}に！` : '';
-  $id('rNest').textContent = `巣「${C.STAGES[s][1]}」${r.total}`;
-  $id('rNbar').style.width = (nx ? clamp((r.total - C.STAGES[s][0]) / (nx[0] - C.STAGES[s][0]), 0, 1) * 100 : 100) + '%';   // 次の段階まで
-  $id('rNext').textContent = nx ? `「${nx[1]}」` : '';
+  $id('rGain').textContent = `宝 ${r.gained}`;
   $id('rHint').textContent = touchUI ? '' : '↑↓ ＋ Enter';
   $id('rWipe').textContent = '巣と曲を最初からにする'; wipeArm = 0;
+  Object.assign(resUI, { focus: 1, list: false }); resRender();
   showChoices();
+  $id('result').classList.toggle('touch', touchUI);
   $id('result').hidden = false;
 }
+function resRender() {   // ボタンのわく（キーボードで選んでいる所）と、曲の一覧の開け閉め
+  ['rRe', 'rGo', 'rLs'].forEach((id, i) => $id(id).classList.toggle('focus', !touchUI && !resUI.list && i === resUI.focus));
+  $id('rLs').classList.toggle('on', resUI.list); $id('rMore').hidden = !resUI.list;
+}
+function resDo(k) {   // もう一回（この曲を最初から）／次の曲（白いわくの曲）／曲の一覧を開け閉め
+  if (!songOver || freshResume()) return;
+  if (k === 're') nextSong(song.idx);
+  else if (k === 'go') nextSong(song.pick);
+  else { resUI.list = !resUI.list; resRender(); }
+}
+$id('rRe').onclick = () => resDo('re'); $id('rGo').onclick = () => resDo('go'); $id('rLs').onclick = () => resDo('ls');
 function showChoices() { $id('rList').innerHTML = choiceHTML(song.pick); }   // 結果の画面の、次の曲の一覧
 function choiceHTML(focus) {   // 選べる曲：遊んだことのある曲と、次の新しい曲（いちばん目立たせる）。白いわくが、いま選んでいる曲（一時停止の画面でも同じ）
   const nw = newSong();
   return choices().map(i => `<button data-i="${i}" class="${i === nw ? 'new' : ''}${i === focus ? ' focus' : ''}">` +
-    `<span>${i + 1}. ${SONGS[i].name}</span><small>${i === nw ? '新曲！' : best[i] ? `<span class="st">${starHTML(best[i].stars)}</span> ${best[i].n}` : ''}</small></button>`).join('');
+    `<span>${i + 1}. ${SONGS[i].name}</span><small>${i === nw ? '新曲！' : best[i] ? `<span class="fl">${'✿'.repeat((LV_RANK[best[i].lv] || 1) - 1)}</span>` : ''}</small></button>`).join('');   // 咲き方：クリア ✿ ／ 満開 ✿✿
 }
 function movePick(d) { const list = choices(), i = list.indexOf(song.pick); song.pick = list[clamp((i < 0 ? 0 : i) + d, 0, list.length - 1)]; showChoices(); }
 function hideResult() { const el = document.getElementById('result'); if (el) el.hidden = true; }
@@ -3261,12 +3684,12 @@ addEventListener('keydown', e => {
     const vk = VOL_KEYS[e.key] || VOL_CODES[e.code]; if (vk) { e.preventDefault(); changeVol(vk[0], vk[1]); }
     return;
   }
-  if (e.code === 'Escape' && !e.repeat) { e.preventDefault(); if (!songOver) openPause(); return; }   // 一時停止（結果の画面では、何もしない）
+  if (e.code === 'Escape' && !e.repeat) { e.preventDefault(); if (!songOver) openPause(); else if (resUI.list) { resUI.list = false; resRender(); } return; }   // 一時停止（結果の画面では、曲の一覧を閉じるだけ）
   if (e.code === 'KeyH' && !e.repeat) { openHelp(); return; }
-  if (songOver && !e.repeat) {                        // 結果の画面：曲を選ぶ
-    const d = { ArrowUp: -1, ArrowLeft: -1, KeyW: -1, KeyA: -1, ArrowDown: 1, ArrowRight: 1, KeyS: 1, KeyD: 1 }[e.code];
-    if (d) { e.preventDefault(); movePick(d); return; }
-    if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); nextSong(song.pick); return; }
+  if (songOver && !e.repeat) {                        // 結果の画面：ボタンを選ぶ（もう一回／次の曲／曲をえらぶ）。曲の一覧を開いたら、曲を選ぶ
+    const d = { ArrowUp: -1, ArrowLeft: -1, KeyW: -1, KeyA: -1, ArrowDown: 1, ArrowRight: 1, KeyS: 1, KeyD: 1 }[e.code], go = e.code === 'Space' || e.code === 'Enter';
+    if (resUI.list) { if (d) { e.preventDefault(); movePick(d); return; } if (go) { e.preventDefault(); nextSong(song.pick); return; } }
+    else { if (d) { e.preventDefault(); resUI.focus = clamp(resUI.focus + d, 0, 2); resRender(); return; } if (go) { e.preventDefault(); resDo(['re', 'go', 'ls'][resUI.focus]); return; } }
   }
   const k = KEYMAP[e.code];
   if (k) {
@@ -4292,7 +4715,7 @@ function rainNote() {
   const now = AC.currentTime, s = Math.max(0, now - rainSnd.t0);
   if (now - rainSnd.at < 0.05 + 0.07 * s) return;    // 噴き出してから時間がたつほど、まばらに
   rainSnd.at = now;
-  const notes = chordNotes(CH.tonic, 79, 100).reverse(), i = rainSnd.i++;
+  const notes = chordNotes(triad(CH.fin.theme[CH.fin.theme.length - 1]), 79, 100).reverse(), i = rainSnd.i++;   // 25回目：属和音で（主音に着くのは、花が咲いたとき）
   pileDrop(now, notes[i % notes.length] + wob(), 0.022 * Math.exp(-s / 1.4));   // だんだん小さく
 }
 function pileDrop(t, m, v) {   // 宝が巣に積もる音：やわらかくて短い「ぽつ」と、砂のような小さな「さら」
@@ -4376,21 +4799,16 @@ function playStep(k, t) {        // 16分音符1つぶんの背景
 //   その曲の編曲でバンド全員で最初から最後まで演奏する → 小節の頭で、テーマの最後の音が主音に着地（噴き出しと同時に「ぽんっ」）→ 余韻を残して消えていく
 function playFinale(k, t, j) {
   const F = S.finale, L = finaleLead(), land = landingStep(), ch = stepChord(k), st = S.theme.stab;
-  for (const n of THEME_SCHED) {                       // テーマの音：着地から逆に数えて、ちょうどこの刻みの音（刻む曲は、音の長さのあいだ刻み直す）
-    const r = k - (land + n.at);
-    if (r < 0 || r >= n.len || (r && !(st && r % st === 0))) continue;
-    hits(S.theme.lead, n.m, t, r ? 0.8 : 1, ch, (st || n.len) * sixteenth(), true);
-  }
+  void st;   // 25回目：テーマのメロディは、噴き出したあとの花でとっておく（噴き出す前は、バンドの伴奏だけ）
   if (k < land) {
     if (j === 0) for (const pt of F.hit) playPart(pt, k, t, 1, ch);
     const dv = driveAt(t), D = lerp(C.DRIVE_FINALE_MIN, 1, dv), keep = lerp(C.DRIVE_KEEP, 1, dv);   // 演奏：テーマの間のバンドも、勢いで厚さが変わる（テーマのメロディはそのまま）
     for (const pt of (j === 0 && L === 2 ? F.roll : F.band)) playPart(pt, k, t, BEAT.test(pt[0]) ? keep : D, ch);
     if (j === L - 1 && !(chargeLive() && charge.state !== 'go')) for (const pt of F.fill) playPart(pt, k, t, 1, ch);   // ためON：くり返している間は、フィルを鳴らさない
   }
-  if (k === land) {                                    // 着地：テーマの最後の音（主音）と主音の和音。「ぽんっ」と重ねる（「ぽんっ」は効果音の音量で）
+  if (k === land) {                                    // 噴き出す瞬間：属和音で「ジャン」と「ぽんっ」（まだ終わらない。主音に着くのは、花が咲いたとき）
     if (charge.log) charge.log.land = { audio: +t.toFixed(3) };
-    hits(S.theme.land, 72 + S.key, t, 1, CH.fin.land, 0, true);
-    const b = curBus; curBus = null; popSound(t); curBus = b;
+    burstHit(t);
   }
   if (k > land) playCalm(k, t);                        // 余韻に重ねて、結果の画面の静かな和音が入る
 }
@@ -4411,7 +4829,13 @@ function riser(t, end) {         // ため：サビの頭（end）へ向けて�
 // ---------------- 動作確認用の自動プレイ ----------------
 // URL に ?bot を付けると自動で遊ぶ（?bot&speed=10 で早回し）。
 // コンソールで simulate() を呼ぶと画面を使わずに1曲を最後まで遊んで、結果を返す（数値調整の目安用）。
-const bot = { target: null, plan: null, planT: 0, ban: new Map(), lean: null, leanK: 2, tapAt: 0 };   // lean：確かめ用に、体寄り（'B'）・歯寄り（'T'）に育てる（leanK：寄せる強さ）
+const bot = { target: null, plan: null, planT: 0, ban: new Map(), lean: null, leanK: 2, tapAt: 0, mode: null, goal: null };
+// 25回目：ボットの遊び方（mode）。null：今までのボット
+//   'path'  道に沿う：近い列・流れを選んで、最後まで取る。仲間が待っていたら、道をたどって会いに行く（今回の友達に近い）
+//   'wander' ふらふら：道を気にせず、近い物を気ままに食べながら歩き回る（仲間は、すぐそばにいるときだけ）
+//   'skill' 上手：つぼみが多く光るように、近くて短い列・流れを選ぶ（仲間は、近いときだけ）
+C.BOT_SEE = 650;   // 道に沿うボットが、光っている列・流れに気づくきょり（だいたい画面に見える近さ）
+const botSet = f => f.cluster && groups[f.cluster] && groups[f.cluster].kind === 'row' ? 'r' + f.cluster : f.flow && flows[f.flow] ? 'f' + f.flow : null;   // 数える列・流れの印   // lean：確かめ用に、体寄り（'B'）・歯寄り（'T'）に育てる（leanK：寄せる強さ）
 const GRID = 10, GW = Math.ceil(C.FIELD_W / GRID), GH = Math.ceil(C.FIELD_H / GRID);
 function botPlan(f) {             // 目標までの距離マップ（食べられないものを避けた格子の上で幅優先探索）
   const blocked = new Uint8Array(GW * GH), dist = new Int32Array(GW * GH).fill(-1);
@@ -4448,6 +4872,7 @@ function botPlan(f) {             // 目標までの距離マップ（食べら�
 }
 function botPick() {
   const pp = C.PALS && !feast() && pals.cur && pals.cur.state === 'wait' && !(bot.palBan > clock) ? pals.cur : null;
+  if (bot.mode && !feast()) return botPickMode(pp);
   if (pp && (Math.hypot(pp.x - ham.x, pp.y - ham.y) < 260 || !foods.some(f => f.path && f.edible && f.born >= 1 && rectDist(f, ham.x, ham.y) < 500))) return { x: pp.x, y: pp.y, w: 2, pal: pp };   // 仲間が近い・道が尽きた：仲間へ
   const fe = feast(), lb = bot.lean === 'B' ? bot.leanK : bot.lean === 'T' ? 1 / bot.leanK : 1;
   const wB = (ham.body < C.GROW_GOAL ? 1 / ham.body : 0.02) * lb, wT = (ham.teeth < C.GROW_GOAL ? 1 / ham.teeth : 0.02) / lb;
@@ -4459,6 +4884,41 @@ function botPick() {
     if (sc > bs) { bs = sc; best = f; }
   }
   return best;
+}
+function botPickMode(pp) {   // 25回目：ボット3種の、サビの前の選び方
+  const ok = f => f.edible && f.born >= 1 && !f.suck && !((bot.ban.get(f) ?? -1) > clock), dist = f => rectDist(f, ham.x, ham.y);
+  const nearest = list => list.reduce((a, f) => (!a || dist(f) < dist(a) ? f : a), null);
+  const pd = pp ? Math.hypot(pp.x - ham.x, pp.y - ham.y) : Infinity, palT = pp && { x: pp.x, y: pp.y, w: 2, pal: pp };
+  if (bot.mode === 'wander') {
+    if (pp && pd < 200) return palT;
+    const near = foods.filter(ok).map(f => [f, dist(f)]).sort((a, b) => a[1] - b[1]).slice(0, 6);
+    return near.length ? near[(Math.random() * near.length) | 0][0] : null;
+  }
+  if (pp && (bot.mode === 'path' || pd < 300)) {   // 仲間：道の果物をたどって（近ければ、そのまま）
+    if (bot.mode === 'path' && pd >= 200) { const pf = nearest(foods.filter(f => f.path && ok(f) && dist(f) < 500)); if (pf) return pf; }
+    return palT;
+  }
+  if (bot.goal && !isGlow(bot.goal) && foods.some(f => { const k = botSet(f); return k && isGlow(k) && (bot.mode === 'skill' || dist(f) < C.BOT_SEE); })) bot.goal = null;   // 光っている物に気づいたら、そちらへ
+  if (bot.goal) {
+    const rest = foods.filter(f => botSet(f) === bot.goal);
+    if (rest.length && rest.every(f => f.edible)) { const t = nearest(rest.filter(ok)); if (t) return t; if (rest.some(f => f.suck)) return null; }   // 残りが口へ吸い込まれている間は、そのまま待つ
+    bot.goal = null;
+  }
+  const sets = {};
+  for (const f of foods) { const k = botSet(f); if (!k) continue; const s = sets[k] || (sets[k] = { n: 0, d: Infinity, all: true }); s.n++; if (!f.edible || f.born < 1) s.all = false; if (ok(f)) s.d = Math.min(s.d, dist(f)); }
+  let best = null, bs = -1;
+  for (const [k, s] of Object.entries(sets)) {   // 光っている物を先に（道に沿う：見える近さなら。上手：どこでも）
+    if (!s.all || !isFinite(s.d)) continue;
+    const g = isGlow(k) && (bot.mode === 'skill' || s.d < C.BOT_SEE) ? 1e3 : 1;
+    const sc = g * (bot.mode === 'skill' ? 1 / (s.d + 45 * s.n + 60) : s.d < 700 ? 1 / (s.d + 60) : 0);
+    if (sc > bs) { bs = sc; best = k; }
+  }
+  if (best && bs > 0) { bot.goal = best; return nearest(foods.filter(f => botSet(f) === best && ok(f))); }
+  // 列・流れがない：今までのように、育つ物を
+  const wB = ham.body < C.GROW_GOAL ? 1 / ham.body : 0.02, wT = ham.teeth < C.GROW_GOAL ? 1 / ham.teeth : 0.02;
+  let f0 = null, s0 = -1;
+  for (const f of foods) { if (!ok(f)) continue; const g = gains(f.s, f.h), sc = (g.body * wB + g.teeth * wT) / (dist(f) + 60); if (sc > s0) { s0 = sc; f0 = f; } }
+  return f0;
 }
 function botThink(dt) {
   input.up = input.down = input.left = input.right = input.eat = false;
