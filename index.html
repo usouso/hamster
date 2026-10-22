@@ -964,24 +964,35 @@ function startView() {   // 曲の始まりに、画面に見える広場の半�
   const VS = full * Math.max(1, Math.sqrt(cover / full / 1.3)) * C.CAM_ZOOM_START * (touchUI ? C.CAM_ZOOM_TOUCH : 1);
   return [aw / 2 / VS, ah / 2 / VS];
 }
-function treePlace() {   // 木：スタート地点のすぐ上に、曲が始まったときに画面に入る大きさで。枝の先に、つぼみ（左から順に光る。BUD_CLEAR 個までは白い輪、その先は金の輪）
+function treePlace() {   // 木：スタート地点のすぐ上に、曲が始まったときに画面に入る大きさで
+  //   大きな枝の先に、クリアに要るつぼみ（左から順に光る）。おまけ（金）のつぼみは、そのさらに外の小枝の先（クリアが決まってから見える。branchesX）
   const [hw, hh] = startView(), cx = C.FIELD_W / 2, cy = C.FIELD_H / 2;
   const H = clamp(Math.min(hh * 0.92 - 40, hw * 1.7), 120, 230), W = H * 1.05;
-  Object.assign(tree, { x: cx, y: cy - 40, h: H, w: W, branches: [], buds: [] });
+  Object.assign(tree, { x: cx, y: cy - 40, h: H, w: W, branches: [], branchesX: [], buds: [] });
   tree.zone = { x0: cx - W / 2 - 8, x1: cx + W / 2 + 8, y0: tree.y - H - 14, y1: tree.y + 4 };
-  const n = budN(), cl = budClear(), rnd = k => hash(song.idx * 37 + k * 1.3 + 5);
-  const top = [cx + (rnd(90) - 0.5) * H * 0.06, tree.y - H * 0.44];
+  const n = budN(), cl = budClear(), ne = n - cl, rnd = k => hash(song.idx * 37 + k * 1.3 + 5);
+  const top = [cx + (rnd(90) - 0.5) * H * 0.06, tree.y - H * 0.44], mids = [];
   tree.branches.push([cx, tree.y, top[0], top[1], H * 0.085]);                                     // 幹
-  for (let i = 0; i < n; i++) {                                                                    // 枝：幹の先から、つぼみまで（途中で少し曲がる）
-    const u = n > 1 ? i / (n - 1) : 0.5, a = Math.PI * (1.1 + 0.8 * u) + (rnd(i) - 0.5) * 0.1;
-    const r = H * (0.42 + 0.14 * Math.sin(u * Math.PI)) * (0.94 + 0.12 * rnd(i + 20));
-    const bx = top[0] + Math.cos(a) * r * 1.0, by = top[1] + Math.sin(a) * r * 0.95;
-    const mx = top[0] + Math.cos(a) * r * 0.5 + (rnd(i + 40) - 0.5) * H * 0.08, my = top[1] + Math.sin(a) * r * 0.5 - H * 0.04;
+  for (let i = 0; i < cl; i++) {                                                                   // 大きな枝：幹の先から、つぼみまで（途中で少し曲がる）
+    const u = cl > 1 ? i / (cl - 1) : 0.5, a = Math.PI * (1.12 + 0.76 * u) + (rnd(i) - 0.5) * 0.1;
+    const r = H * (0.36 + 0.12 * Math.sin(u * Math.PI)) * (0.94 + 0.12 * rnd(i + 20));
+    const bx = top[0] + Math.cos(a) * r, by = top[1] + Math.sin(a) * r * 0.95;
+    const mx = top[0] + Math.cos(a) * r * 0.5 + (rnd(i + 40) - 0.5) * H * 0.06, my = top[1] + Math.sin(a) * r * 0.5 - H * 0.04;
     tree.branches.push([top[0], top[1], mx, my, H * 0.045], [mx, my, bx, by, H * 0.026]);
-    if (rnd(i + 60) < 0.6) { const ta = a + (rnd(i + 70) < 0.5 ? -0.6 : 0.6), tl = H * 0.08; tree.branches.push([mx, my, mx + Math.cos(ta) * tl, my + Math.sin(ta) * tl, H * 0.016]); }   // 小枝
-    tree.buds.push({ x: bx, y: by, gold: i >= cl });
+    if (rnd(i + 60) < 0.5) { const ta = a + (rnd(i + 70) < 0.5 ? -0.6 : 0.6), tl = H * 0.07; tree.branches.push([mx, my, mx + Math.cos(ta) * tl, my + Math.sin(ta) * tl, H * 0.016]); }   // 小枝
+    mids.push({ a, x: lerp(mx, bx, 0.6), y: lerp(my, by, 0.6) });
+    tree.buds.push({ x: bx, y: by, gold: false });
+  }
+  for (let j = 0; j < ne; j++) {                                                                   // おまけ：大きな枝の途中から、さらに外へのびる小枝の先
+    const u = ne > 1 ? j / (ne - 1) : 0.5, a = Math.PI * (1.08 + 0.84 * u) + (rnd(j + 100) - 0.5) * 0.08;
+    const base = mids.reduce((p, q) => (Math.abs(q.a - a) < Math.abs(p.a - a) ? q : p)), r = H * (0.5 + 0.08 * Math.sin(u * Math.PI));
+    const bx = top[0] + Math.cos(a) * r * 1.02, by = top[1] + Math.sin(a) * r * 0.97;
+    tree.branchesX.push([base.x, base.y, bx, by, H * 0.018]);
+    tree.buds.push({ x: bx, y: by, gold: true });
   }
 }
+const budShown = () => buds.cleared || (song.bloom && song.bloom.b > budClear()) ? budN() : budClear();   // いま見せるつぼみの数（クリアが決まるまでは、クリアに要る分だけ）
+const extraGrow = () => buds.cleared ? clamp((clock - buds.clearAt) / 0.6, 0, 1) : song.bloom && song.bloom.b > budClear() ? 1 : 0;   // おまけの小枝とつぼみが、のびて出てくる具合
 // 光る列（宝石の列・果物の流れ）を最後まで取り切った：最後の1個の場所から、光の粒が画面の端の小さな木へ。着いた瞬間（次の8分音符）に、つぼみが光って、鈴が鳴る
 function budEarn(x, y, key) {
   if (!budCount() || !isGlow(key)) return;          // 光っていない列・流れは数えない
@@ -1010,8 +1021,12 @@ function glowTick() {   // 光っている列・流れが GLOW_N 本より少な
   const [k] = list[(Math.random() * list.length) | 0];
   setOf(k).glow = true; setOf(k).glowAt = clock; buds.offerAt = clock;
 }
-function budsTick(dt) {   // 光の粒が小さな木に着いたら、つぼみが光る
+function budsTick(dt) {   // 光の粒が小さな木に着いたら、つぼみが光る。クリアに要る分が全部光ったら、クリア確定（おまけのつぼみが増える）
   for (const p of buds.fly) { p.t += dt; if (p.t >= p.T && !p.done) { p.done = true; buds.lit = Math.max(buds.lit, p.k + 1); buds.litAt[p.k] = clock; } }
+  if (!buds.cleared && buds.lit >= budClear()) {
+    buds.cleared = true; buds.clearAt = clock;
+    rings.push({ x: tree.x, y: tree.y - tree.h * 0.55, r0: tree.h * 0.3, grow: tree.h * 0.9, t: 0, life: 0.8, width: 7, color: '255,236,150' });
+  }
   buds.fly = buds.fly.filter(p => !p.done || p.t < p.T + 0.3);
 }
 function sfxBud(k, t) {   // 小さな鈴の音：つぼみが増えるほど1音ずつ高く（その時の和音の音で）。テーマのメロディは使わない（締めまでとっておく）
@@ -1020,8 +1035,10 @@ function sfxBud(k, t) {   // 小さな鈴の音：つぼみが増えるほど1�
   const prev = buds.pitch ?? 0, m = k === 0 ? pool[0] : (pool.find(p => p > prev) ?? pool[pool.length - 1]);
   buds.pitch = m;
   const b = curBus; curBus = null;
-  try { play('bell', t, m, 1.1, C.BUD_VOL * 0.9); play('glass', t, m + 12, 0.6, C.BUD_VOL * 0.35); }
-  finally { curBus = b; }
+  try {
+    play('bell', t, m, 1.1, C.BUD_VOL * 0.9); play('glass', t, m + 12, 0.6, C.BUD_VOL * 0.35);
+    if (k + 1 === budClear()) for (const [j, mm] of chordNotes(triad(ch), 72, 90).slice(0, 3).entries()) play('bell', t + 0.04 + j * 0.03, mm, 1.6, C.BUD_VOL * 0.55);   // クリア確定：短い和音を1回だけ
+  } finally { curBus = b; }
 }
 // 最初の1本：曲の始めに、ハムスターのすぐ近く（画面の中）に、短い宝石の列（最初の歯で食べられる宝石）
 function tutorRow() {
@@ -1175,14 +1192,18 @@ function drawTree() {   // 枯れた大きな木（スタート地点のすぐ�
   ctx.fillStyle = 'rgba(0,0,0,0.16)'; ctx.beginPath(); ctx.ellipse(tree.x, tree.y + 2, tree.h * 0.16, tree.h * 0.045, 0, 0, TAU); ctx.fill();   // 根もとの影
   ctx.lineCap = 'round'; ctx.strokeStyle = wood;
   for (const [x0, y0, x1, y1, w] of tree.branches) { ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); }
+  const eg = extraGrow();
+  if (eg > 0) for (const [x0, y0, x1, y1, w] of tree.branchesX) { ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(lerp(x0, x1, eg), lerp(y0, y1, eg)); ctx.stroke(); }   // おまけの小枝
   ctx.strokeStyle = 'rgba(40,30,22,0.35)'; ctx.lineWidth = tree.h * 0.012;   // 幹の、ひびの線
   ctx.beginPath(); ctx.moveTo(tree.x - tree.h * 0.015, tree.y - 4); ctx.lineTo(tree.x - tree.h * 0.01, tree.y - tree.h * 0.3); ctx.moveTo(tree.x + tree.h * 0.02, tree.y - tree.h * 0.08); ctx.lineTo(tree.x + tree.h * 0.012, tree.y - tree.h * 0.36); ctx.stroke();
   ctx.lineCap = 'butt';
   const beat = Math.pow(1 - beatPhase(), 2), r = tree.h * 0.045;
+  const shown = budShown();
   tree.buds.forEach((bd, i) => {
-    const f = B && B.list[i], open = f ? f.open : 0;
+    if (i >= shown) return;                                                    // クリアが決まるまで、おまけのつぼみは見せない
+    const f = B && B.list[i], open = f ? f.open : 0, gk = bd.gold ? Math.max(0.01, eg) : 1;
     if (open > 0) { drawFlower(bd.x, bd.y, r * (1.2 + 1.1 * open), open, i); return; }
-    drawBud(bd.x, bd.y, r, i < buds.lit, bd.gold, beat, clock - (buds.litAt[i] ?? -9));
+    drawBud(bd.x, bd.y, r * gk, i < buds.lit, bd.gold, beat, clock - (buds.litAt[i] ?? -9));
   });
 }
 function drawBud(x, y, r, lit, gold, beat, since) {   // つぼみ1つ（光った：あたたかい色で光る。光った瞬間は、ぽんと大きく）
@@ -1191,7 +1212,7 @@ function drawBud(x, y, r, lit, gold, beat, since) {   // つぼみ1つ（光っ�
     const g = ctx.createRadialGradient(x, y, rr * 0.3, x, y, rr * (2.6 + 0.6 * beat));
     g.addColorStop(0, `rgba(255,235,150,${0.75 + 0.25 * beat})`); g.addColorStop(1, 'rgba(255,200,120,0)');
     ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, rr * (2.6 + 0.6 * beat), 0, TAU); ctx.fill();
-    ctx.fillStyle = '#ffd6e0'; ctx.strokeStyle = '#c85a7a';
+    ctx.fillStyle = gold ? '#ffe9a0' : '#ffd6e0'; ctx.strokeStyle = gold ? '#c8962a' : '#c85a7a';
   } else { ctx.fillStyle = '#4e4540'; ctx.strokeStyle = gold ? 'rgba(232,190,80,0.9)' : 'rgba(235,235,235,0.75)'; }
   ctx.lineWidth = Math.max(1, rr * 0.28); ctx.beginPath(); ctx.ellipse(x, y, rr * 0.78, rr, 0, 0, TAU); ctx.fill(); ctx.stroke();
   if (lit) { ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.beginPath(); ctx.ellipse(x - rr * 0.25, y - rr * 0.35, rr * 0.18, rr * 0.28, -0.4, 0, TAU); ctx.fill(); }
@@ -1240,14 +1261,20 @@ function drawMiniTree(ax, ay, aw, ah, compact) {   // 画面の右上の、小�
   ctx.save(); ctx.translate(ox, oy); ctx.scale(k * SX, k);
   ctx.lineCap = 'round'; ctx.strokeStyle = 'rgb(150,132,116)';
   for (const [x1, y1, x2, y2, w] of tree.branches) { ctx.lineWidth = Math.max(w, 2.2 / k); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
+  const eg = extraGrow();
+  if (eg > 0) for (const [x1, y1, x2, y2, w] of tree.branchesX) { ctx.lineWidth = Math.max(w, 1.6 / k); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(lerp(x1, x2, eg), lerp(y1, y2, eg)); ctx.stroke(); }
   ctx.lineCap = 'butt'; ctx.restore();
-  const beat = Math.pow(1 - beatPhase(), 2), r = (touchUI ? 6.5 : 7) * (tree.buds.length > 8 ? 0.86 : 1);
+  const fl = buds.cleared ? clamp(1 - (clock - buds.clearAt) / 0.7, 0, 1) : 0;   // クリア確定：箱がぱっと光る
+  if (fl > 0) { ctx.fillStyle = `rgba(255,240,170,${0.45 * fl})`; ctx.beginPath(); ctx.roundRect(x0, y0, Wb, H, 12); ctx.fill(); ctx.strokeStyle = `rgba(255,240,170,${fl})`; ctx.lineWidth = 3; ctx.stroke(); }
+  const beat = Math.pow(1 - beatPhase(), 2), r = (touchUI ? 6.5 : 7) * (tree.buds.length > 8 ? 0.86 : 1), shown = budShown();
   mini.pos = tree.buds.map((bd, i) => {
     const x = ox + bd.x * k * SX, y = oy + bd.y * k, B = song.bloom, f = B && B.list[i];
+    if (i >= shown) return [x, y];
     if (f && f.open > 0) drawFlower(x, y, r * 1.6, f.open, i);
     else {
-      drawBud(x, y, r, i < buds.lit, bd.gold, beat, clock - (buds.litAt[i] ?? -9));
-      if (i >= buds.lit) { ctx.strokeStyle = bd.gold ? 'rgba(240,195,70,0.95)' : 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 3, 0, TAU); ctx.stroke(); }   // まだのつぼみの輪（白：クリアまで／金：その先）
+      const rr = r * (bd.gold ? Math.max(0.01, eg) : 1);
+      drawBud(x, y, rr, i < buds.lit, bd.gold, beat, clock - (buds.litAt[i] ?? -9));
+      if (i >= buds.lit) { ctx.strokeStyle = bd.gold ? 'rgba(240,195,70,0.95)' : 'rgba(255,255,255,0.85)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, rr + 3, 0, TAU); ctx.stroke(); }   // まだのつぼみ（暗い所でも見えるように、ふち）
     }
     return [x, y];
   });
@@ -1273,17 +1300,22 @@ function drawGlowArrow(ax, ay, aw, ah) {   // 光る列が画面の外にある�
   }
 }
 function drawBudRow(ax, aw) {   // スマホ：上の2段目に、左はしの小さな木の絵と、1本の枝につぼみを横に並べる
-  const y = 22 + 34, x0 = ax + 30, x1 = ax + aw - 12, n = tree.buds.length, gap = (x1 - x0) / Math.max(1, n - 1), r = clamp(gap * 0.3, 5, 7.5), beat = Math.pow(1 - beatPhase(), 2), B = song.bloom;
+  const y = 22 + 34, x0 = ax + 30, x1 = ax + aw - 12, n = tree.buds.length, gap = (x1 - x0) / Math.max(1, n - 1), r = clamp(gap * 0.3, 5, 7.5), beat = Math.pow(1 - beatPhase(), 2), B = song.bloom, shown = budShown(), eg = extraGrow();
+  const fl = buds.cleared ? clamp(1 - (clock - buds.clearAt) / 0.7, 0, 1) : 0;   // クリア確定：ぱっと光る
+  if (fl > 0) { ctx.fillStyle = `rgba(255,240,170,${0.4 * fl})`; ctx.beginPath(); ctx.roundRect(ax + 2, y - 13, x0 + (budClear() - 1) * gap - ax + 12, 26, 12); ctx.fill(); }
   ctx.strokeStyle = 'rgb(150,132,116)'; ctx.lineCap = 'round';
   ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(ax + 10, y + 9); ctx.lineTo(ax + 10, y - 3); ctx.stroke();              // 小さな木の絵（幹と枝）
   ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(ax + 10, y - 1); ctx.lineTo(ax + 4, y - 8); ctx.moveTo(ax + 10, y - 2); ctx.lineTo(ax + 17, y - 9); ctx.moveTo(ax + 10, y - 3); ctx.lineTo(ax + 10, y - 11); ctx.stroke();
-  ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(ax + 14, y + 2); ctx.lineTo(x1 + 4, y + 2); ctx.stroke(); ctx.lineCap = 'butt';   // つぼみの枝
+  const xc = x0 + (budClear() - 1) * gap, xEnd = shown > budClear() ? lerp(xc, x0 + (n - 1) * gap, eg) : xc;
+  ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(ax + 14, y + 2); ctx.lineTo(xEnd + 6, y + 2); ctx.stroke(); ctx.lineCap = 'butt';   // つぼみの枝（おまけが増えると、のびる）
   mini.pos = tree.buds.map((bd, i) => {
     const x = x0 + i * gap, f = B && B.list[i];
+    if (i >= shown) return [x, y];
     if (f && f.open > 0) drawFlower(x, y, r * 1.6, f.open, i);
     else {
-      drawBud(x, y, r, i < buds.lit, bd.gold, beat, clock - (buds.litAt[i] ?? -9));
-      if (i >= buds.lit) { ctx.strokeStyle = bd.gold ? 'rgba(240,195,70,0.95)' : 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 3, 0, TAU); ctx.stroke(); }
+      const rr = r * (bd.gold ? Math.max(0.01, eg) : 1);
+      drawBud(x, y, rr, i < buds.lit, bd.gold, beat, clock - (buds.litAt[i] ?? -9));
+      if (i >= buds.lit) { ctx.strokeStyle = bd.gold ? 'rgba(240,195,70,0.95)' : 'rgba(255,255,255,0.85)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, rr + 3, 0, TAU); ctx.stroke(); }
     }
     return [x, y];
   });
@@ -1364,7 +1396,7 @@ function reset() {
   Object.assign(song, { hop: null, bloom: null, bloomBus: null, burstClock: null }); ham.z = 0;
   if (song.pileDirty) { pileCanvas = null; song.pileDirty = false; }   // 前の曲で木に吸いこまれた宝も、巣の山に描く
   chargeReset();
-  treePlace(); Object.assign(buds, { got: 0, lit: 0, fly: [], log: [], litAt: [], pitch: 0, offerAt: 0, glowAt: 0 }); bot.goal = null;   // 木とつぼみ（25回目）
+  treePlace(); Object.assign(buds, { got: 0, lit: 0, fly: [], log: [], litAt: [], pitch: 0, offerAt: 0, glowAt: 0, cleared: false, clearAt: -9 }); bot.goal = null;   // 木とつぼみ（25回目）
   if (AC && soundMode === 'music' && !mus.timer) musicStart();
   hideResult();
   clusterSeq = 0; placeMiss = 0;
@@ -3431,7 +3463,7 @@ function drawLabels(fs) {
 let helpOpen = false, helpPaused = false;
 function helpHTML() {
   const on = v => v ? '入' : '切', k = t => `<kbd>${t}</kbd>`;
-  const rules = ['<b>光る列を最後まで食べると、木のつぼみが光る。最後に木に向かって噴き出すと、花が咲く</b>（白い輪のつぼみが全部咲くとクリア、金の輪まで全部で満開）',
+  const rules = ['<b>光る列を最後まで食べると、木のつぼみが光る。最後に木に向かって噴き出すと、花が咲く</b>（木のつぼみが全部光るとクリア。そのあと、金のつぼみ（おまけ）が増えて、それも全部光ると満開）',
     '果物を食べると<b>体が大きく</b>、宝石を食べると<b>歯が硬く</b>なる（どんぐりは両方）',
     '暗い物は、まだ食べられない。当たると吹き出しに、足りない方の絵が出る（果物＝大きさ、宝石＝歯）',
     C.PALS ? '広場で待っているバンドの仲間に会いに行くと、その仲間の楽器が加わって、後ろをついて歩く（果物の道をたどると会える。画面の外にいるときは、端に矢印）' : '体と歯が育つと、下のバンドの仲間が1人ずつ加わる（オレンジ＝果物で育つ楽器、青＝宝石で育つ楽器）',
