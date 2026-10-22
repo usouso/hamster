@@ -1,0 +1,2277 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>頬袋ハムスター 迷路</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #23221f; overflow: hidden; overscroll-behavior: none; touch-action: none;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  canvas { display: block; touch-action: none; }
+  /* 文字は使わない：ボタンは絵だけ */
+  .ibtn { position: fixed; z-index: 5; width: 44px; height: 44px; border-radius: 22px; border: 1px solid rgba(255,255,255,0.35); background: rgba(30,28,24,0.62);
+    display: flex; align-items: center; justify-content: center; padding: 0; touch-action: manipulation; cursor: pointer; }
+  .ibtn:active { background: rgba(80,76,68,0.8); }
+  #bPause { right: 10px; top: 10px; }
+  #pause { position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 6; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; gap: 28px; }
+  .big { width: 92px; height: 92px; border-radius: 46px; display: flex; align-items: center; justify-content: center; padding: 0; cursor: pointer; touch-action: manipulation; }
+  .big.go { background: #2e5228; border: 2px solid #8fe07a; }
+  .big.re { background: #553620; border: 2px solid #e0a070; }
+  .big.focus { outline: 3px solid #fff; outline-offset: 3px; }
+  #result { position: fixed; z-index: 6; left: 50%; bottom: 26px; transform: translateX(-50%); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<button id="bPause" class="ibtn" aria-label="一時停止" hidden><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><rect x="3" y="2" width="4.4" height="14" rx="1.2" fill="#f4ecd8"/><rect x="10.6" y="2" width="4.4" height="14" rx="1.2" fill="#f4ecd8"/></svg></button>
+<div id="pause" hidden>
+  <button id="pGo" class="big go" aria-label="つづける"><svg width="40" height="40" viewBox="0 0 22 22" aria-hidden="true"><path d="M6 3 L19 11 L6 19 Z" fill="#b8ff9a"/></svg></button>
+  <button id="pRe" class="big re" aria-label="最初から"><svg width="40" height="40" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5a7.5 7.5 0 1 1-7 4.8" fill="none" stroke="#ffcf9a" stroke-width="2.6" stroke-linecap="round"/><path d="M1.8 5.2 L4.6 11 L9.6 7.6 Z" fill="#ffcf9a"/></svg></button>
+</div>
+<div id="result" hidden>
+  <button id="rRe" class="big re focus" aria-label="もう一回"><svg width="40" height="40" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5a7.5 7.5 0 1 1-7 4.8" fill="none" stroke="#ffcf9a" stroke-width="2.6" stroke-linecap="round"/><path d="M1.8 5.2 L4.6 11 L9.6 7.6 Z" fill="#ffcf9a"/></svg></button>
+</div>
+<script>
+'use strict';
+// ============================================================
+//  頬袋ハムスター 迷路版（迷路版1回目）
+//  パックマン型：迷路の中で音の粒を食べて、音を消すもの（2匹）をよける。サビでは立場が逆転して、音を消すものを食べられる
+//  エリア（5つ）の粒を全部食べると、そのエリアに色が戻り、閉じこめられていた仲間が出てきて木のそばで演奏に加わる。つぼみが1つ光る
+//  4つでクリア、5つで満開。締めは自動で、頬袋の中身を木へどばー → 花が咲いて、クリアなら「ジャーン」
+//  音の仕組み・曲（はじまりの野原）・仲間のバンド・締めの音・花の音は、広場版（index.html）から持ってきた（「広場版から」の印）
+//  位置の単位は「マス」（迷路の1マス＝1）。描くときに、画面の1マスの大きさ（T px）に合わせる
+// ============================================================
+const CONFIG = {
+  // ---- 迷路の動き（速さは マス/秒）
+  HAM_SPEED: 4.0,           // ハムスターの速さ（ほっぺが軽いとき）。ボット3種で決めた
+  HEAVY_SLOW: 0.2,          // ほっぺがいちばん重いとき、この割合だけ遅くなる（サビの間は遅くならない）
+  POUCH_FULL: 120,          // ほっぺの中身がこの数で「いちばん重い」
+  TURN_EARLY: 0.45,         // 曲がり角の、このマス手前から曲がり始められる（先入れした向きへ、角を少し丸く曲がる）
+  TURN_LATE: 0.4,           // 曲がり角を、このマスだけ過ぎてから入れても、曲がらせる（角のアシスト）
+  MON_SPEED: 3.2,           // 音を消すものの速さ（ほっぺが軽いハムスターの 0.8 倍 ＝ いちばん重いハムスターと同じ）
+  MON_SCARED: 0.6,          // サビ：こわがって、この倍に遅くなる
+  MON_TUNNEL: 0.6,          // トンネルの中は、この倍
+  MON_START_BARS: 2,        // 曲が始まって、この小節は出てこない（1匹目）
+  MON_GAP_BARS: 2,          // 2匹目は、1匹目のさらにこの小節あと
+  MON_EXIT_SEC: 1.5,        // 穴から、ゆっくり出てくる秒数
+  CHASE_P: 0.5,             // 2匹目：曲がり角で、ハムスターの方へ曲がる割合（残りは気まま）
+  HIT_R: 0.62,              // 当たる距離（マス）
+  HIT_SPILL: 0.3,           // 当たったとき、ほっぺの中身のこの割合がこぼれる
+  HIT_SAFE: 2,              // 当たったあと、この秒数は当たらない（点滅）
+  SPILL_LIFE: 5,            // こぼれた物が光っている秒数（拾い直せる）
+  LAST_GLOW: 5,             // エリアの粒の残りがこの数以下になったら、残りが光って目立つ
+  MON_EAT_POUCH: 12,        // サビで音を消すものを食べたとき、ほっぺがふくらむ分（粒いくつ分か）
+  // ---- 粒の音
+  DOT_COMBO_GAP: 0.45,      // この秒数以内に続けて食べている間は、1つのフレーズ
+  PHRASE_N: 8,              // 1つのフレーズの音の数（そのあと、形を変えて次のフレーズ）
+  DOT_VOL: 1.3,             // 粒の音の大きさ（広場版の列の音に対して。伴奏よりはっきり）
+  DRIVE_PER_DOT: 0.34,      // 粒1つで上がる、伴奏の勢い
+  MUFFLE_NEAR: 1.5,         // 音を消すものがこのマスより近いと、いちばんこもる
+  MUFFLE_FAR: 6,            // このマスより遠いと、こもらない
+  MUFFLE_HZ: 1700,          // いちばんこもったときの、高い音を落とす所（Hz。ふだんは落とさない）
+  // ---- つぼみ
+  BUD_N: 5,                 // つぼみの数（エリアの数）
+  BUD_CLEAR: 4,             // クリアに要るつぼみ
+  BUD_VOL: 0.085,           // つぼみが光ったときの鈴の大きさ
+  // ---- 締め
+  CHARGE_STEPS: 8,          // ためる段数（1拍に1段。8段で2小節）
+  FINALE_LEAD: 3,           // 締めに入ってから着地（どばー）まで（小節）：1小節目で木の前へ、2・3小節目で自動のため
+  FOCUS_ZOOM_PC: 1.7,       // 締め：木を中心に、迷路をこの倍まで寄せる（パソコン）
+  FOCUS_ZOOM_PHONE: 2.6,    //   スマホ
+  SHAKE_BURST: 7, CHARGE_SHAKE: 12, SHAKE_DECAY: 14,   // どばーの揺れ（px。このときだけ揺らす）
+  END_AFTER_BLOOM: 1.6,     // 花が咲き終わってから、結果のボタンを出すまで（秒）
+  // ---- 音（広場版と同じ）
+  SOUND_VOLUME: 0.45, VOLUME_START: { all: 8, music: 8, sfx: 8 }, SOUND_MODE_START: 'music', MUSIC_VOLUME: 1,
+  PLAY: true, PALS: true, PAUSE_ON_BLUR: true,
+  DRIVE_PER_EAT: 0.5, DRIVE_HOLD: 2, DRIVE_FADE: 2, DRIVE_KEEP: 0.7, DRIVE_FINALE_MIN: 0.2, DUCK: 0.82,
+  EAT_PITCH_MIN: 0.022, SFX_QUEUE_GAP: 0.07, ROW_SFX_GAP: 0.13,
+  GROOVE_PER_FRUIT: 0.4, GROOVE_HOLD: 1.5, GROOVE_FADE: 0.12,   // 大きな実：ベースの層が一時的に加わる
+  SPECIAL_KIME_VOL: 0.7,
+  SONG_SEC: { intro: 9.2, a: 46, b: 41.5, build: 4.6, chorus: 18.5, finale: 11.5 },
+  SONG_BAR_STEP: { intro: 2, a: 4, b: 2, build: 2, chorus: 2, finale: 1 },
+  MUSIC_LAYERS_AT: [2, 3.4, 5, 7, 9],
+  THEMES: [{ name: 'いまの', notes: [[67, 2], [76, 2], [79, 2], [81, 4], [79, 2], [76, 2], [74, 4]] }],   // ソ｜ミ ソ ラー ソ ミ レー｜ド
+  THEME_LAND: 72,
+  LIGHT_FX_FPS: 45,         // なめらかさがこれ（コマ/秒）を下回り続けたら、光の演出を軽くする（スマホ向け）
+  BOT_LAG: { normal: [0.2, 0.3], skill: [0.03, 0.08] },   // ボット（試す用）：見てから手が動くまでの秒数
+  BOT_AHEAD: { normal: 0.8, skill: 0.97 },                 // ボット（試す用）：先読みの正確さ
+  BOT_MISTAKE: { normal: 0.08, skill: 0.01 },              // ボット（試す用）：判断をまちがえる割合（曲がり角ごと）
+};
+const C = CONFIG;
+const qs = new URLSearchParams(location.search);
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const hash = n => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+const $id = id => document.getElementById(id);
+const SIM_SPEED = Math.max(1, +qs.get('speed') || 1);
+const BOT = qs.get('bot');   // ?bot=normal|skill|wander：ボットが遊ぶ（確かめ用）
+// 乱数：?seed= を付けると、同じ並びになる（確かめ用）
+let rnd = Math.random;
+if (qs.has('seed')) { let s = (+qs.get('seed') | 0) || 1; rnd = () => { s |= 0; s = (s + 0x6D2B79F5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; Math.random = rnd; }
+let paused = false, lowFx = qs.has('lowfx');
+const vol = { ...C.VOLUME_START };
+let touchUI = qs.has('touch') || matchMedia('(pointer: coarse)').matches || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+const say = () => {};   // 広場版の文字の表示：迷路版は文字を使わない
+
+// ============================================================
+//  曲の設計図（広場版から：1曲目「はじまりの野原」だけ。書き方の説明は index.html の SONGS の上に）
+// ============================================================
+const SONGS = [
+  { // 1曲目：今までの曲。マリンバとベルのポップ
+    mix: { fanfare: 0.9, hookFill: 2.2 },
+    id: 'pop', name: 'はじまりの野原', short: '野原', band: { body: ['ベース', 'マリンバ', '低い和音', '木の太鼓', '歩くベース'], teeth: ['ハイハット', 'ベル', 'ガラス', 'きらきら', 'シェイカー'] }, bpm: 104, swing: 0.5, swingUnit: 8, key: 0, scale: [0, 2, 4, 7, 9], gain: 1,
+    look: { ground: '#a9c79a', edge: '#6d8a5f', bg: '#2b2b2b', glow: '255,225,90' },
+    chords: { intro: ['C△7', 'Am7', 'F△7', 'G6'], a: ['C△7', 'Am7', 'F△7', 'G6'], b: ['F△7', 'G6', 'Em7', 'Am7'], build: ['Dm7', 'G7'],
+      chorus: ['C△7', 'Am7', 'F△7', 'G6'], hold: 'C△7', theme: ['F△7', 'G7'], land: 'Cadd9', calm: ['C△9', 'F△9'] },
+    theme: { mode: 'major', rhythm: [2, 2, 2, 4, 2, 2, 4], stab: 0, grid: 2, gap: 2, rowStab: 1,
+      row: [['glass', 0, 0.06], ['tri', -12, 0.02, 0.28]],
+      rowLand: [['glass', 0, 0.07], ['bell', -12, 0.035, 1.4], ['glass', 12, 0.012, 0, { dt: 0.03 }], ['tri', -24, 0.03, 0.9]],
+      lead: [['marimba', 0, 0.065, 0, { w: 0.2 }], ['glass', 12, 0.024], ['bell', 0, 0.018, -1.4, { long: true }]],
+      land: [['marimba', 0, 0.07, 0, { w: 0.6 }], ['glass', 12, 0.035], ['bell', 0, 0.04, 3], ['padTri', 'chord', 0.01, 3.2, { r: [48, 84], atk: 0.02 }],
+        ['marimba', ['R,,', '5,,', '3,'], 0.045, 0, { w: 0.8 }], ['glass', ['5', "R'", '9'], 0.022, 0, { dt: 0.03 }], ['sine', ['R,,,'], 0.085, 3], ['kick', null, 0.14], ['crash', null, 0.045, 2.6]],
+      end: { oct: -12, up: [['marimba', 0, 0.035, 0, { w: 0.3 }], ['bell', 0, 0.009, 0.9]], top: [['marimba', 0, 0.042, 0, { w: 0.6 }], ['bell', 0, 0.026, 2.0], ['glass', 12, 0.022]] } },
+    base: [['padTri', 'x.......x.......', { chord: true, r: [55, 67], len: 7.6, v: 0.009 }], ['kick', 'x.......x.......', { v: 0.075, in: 'iab' }], ['kick', 'x...x...x...x...', { v: 0.1, in: 'kc' }]],
+    body: [
+      [['bassTri', 'x.....o.x...o...', { n: ['R', '5'], len: [3.6, 1.8], v: 0.07 }]],                                                     // ベース
+      [['marimba', '....x.....x.....', { chord: true, r: [57, 66], max: 2, v: 0.022 }]],                                                   // マリンバの合いの手
+      [['padTri', 'x.......x.......', { chord: true, r: [45, 55], len: 7.2, v: 0.012, atk: 0.4 }], ['marimba', '..x.....x.....x.', { arp: [0, 2, 3], r: [50, 62], v: 0.02 }]],   // 低い温かい和音・低いマリンバ
+      [['woodDrum', '......x.......x.', { v: 0.05 }], ['marimba', 'x.......x.......', { chord: true, r: [60, 71], v: 0.012 }]],              // 木の太鼓・ピアノのような和音
+      [['bassTri', 'x.x.x.x.x.x.x.x.', { n: [0, 4, 7, 12, 7, 4, 2, 4], len: 1.7, v: 0.035 }]],                                              // 歩くベース
+    ],
+    teeth: [
+      [['hatSoft', '..x...x...x...x.', { v: 0.016 }], ['glass', '..............x.', { arp: [0], r: [84, 95], v: 0.01 }]],                     // チッと、小さなきらっ
+      [['glass', 'x.x.x.x.x.x.x.x.', { arp: [0, 1, 2, 3, 2, 1, 2, 3], r: [72, 88], v: 0.012 }]],                                            // ベルの分散和音
+      [['padSine', 'x.......x.......', { chord: true, r: [76, 88], len: 7.2, v: 0.006, atk: 0.5 }]],                                        // ガラスの和音
+      [['glass', '.x...x...x...x..', { arp: 'cycle', r: [79, 96], v: 0.009 }]],                                                             // 細かい合いの手
+      [['shaker', '.x.x.x.x.x.x.x.x', { v: 0.01 }], ['glass', 'x...............', { arp: [0], r: [91, 100], v: 0.012 }]],                     // シャカシャカと、いちばん上のきらっ
+    ],
+    groove: [['grooveBass', 'x...8...9.....6.', { n: [0, 7, 0, 7], r: [40, 51], len: 0.9, v: 0.085 }], ['grooveBass', '......6.....7...', { n: [12, 12], r: [40, 51], len: 0.9, v: 0.085, from: 0.2 }],
+      ['grooveBass', '...5.......5....', { n: [12, 7], r: [40, 51], len: 0.9, v: 0.085, from: 0.35 }], ['grooveBass', '.......5.......5', { n: [7, 0], r: [40, 51], len: 0.9, v: 0.085, from: 0.6 }],
+      ['hat', '.x.x.x.x.x.x.x.x', { v: 0.012, from: 0.55 }], ['hat', '..x...x...x...x.', { v: 0.008, from: 0.55 }], ['kick', '.......x........', { v: 0.06, from: 0.75 }]],
+    chorus: [['clapPop', '....x.......x...', { v: 0.035 }], ['openHat', '..x...x...x...x.', { v: 0.012 }], ['leadPop', 'x...x.x...x.x.x.', { arp: [0, 1, 2, 3, 2, 1], r: [72, 84], v: 0.03 }],
+      ['swish', '..............x.', { v: 0.02, bars: 4, bar: 3 }]],
+    build: [['snare', '3.445.667.889.x9', { v: 0.045, last: true }]],
+    finale: {
+      hit: [['crash', 'x...............', { v: 0.04, len: 9.7 }], ['kick', 'x...............', { v: 0.13 }], ['tri', 'x...............', { n: ['R'], r: [36, 47], len: 6, v: 0.08 }], ['marimba', 'x...............', { chord: true, r: [55, 67], v: 0.03 }]],
+      roll: [['snare', '..4.5.6.7.8.9.x.', { v: 0.055 }], ['kick', 'x...x...x...x...', { v: 0.09 }]],
+      band: [['tri', 'x.x.x.x.x.x.x.x.', { n: [0, 0, 12, 7, 0, 0, 12, 7], r: [36, 47], len: 1.6, v: 0.08 }], ['kick', 'x...x...x...x...', { v: 0.1 }], ['snare', '....x...........', { v: 0.05 }],
+        ['hat', 'x.x.x.x.x.x.....', { v: 0.012 }], ['marimba', 'x.......x.......', { chord: true, r: [55, 67], v: 0.022 }]],
+      fill: [['tom', '............789x', { hz: [300, 250, 200, 150], v: 0.1 }]] },
+    kit: { kick: 'kick', crash: 'crash', tom: 'tom', toms: [270, 205, 150], bass: 'tri', comp: 'marimba' },
+    ev: { fruit: 'marimba', fruitHi: 'marimba', hard: 'glass', blob: 'bell', cluster: 'glass', bump: [['wood', 55], ['wood', 73]], growB: 'marimba', growT: 'glass', unlock: 'bell', sparkle: 'glass' },
+  },
+];
+
+// ---------------- 1曲の流れ（広場版と同じ） ----------------
+//   イントロ → Aメロ → Bメロ → ため → サビ（逆転）→ 締め → 結果。曲の進み具合は song.t（秒）。音楽が鳴っている間は、音の時計に合わせて進む
+const PARTS = [['intro', 'イントロ'], ['a', 'Aメロ'], ['b', 'Bメロ'], ['build', 'ため'], ['chorus', 'サビ'], ['finale', '締め']];
+let S = SONGS[0], PLAN = [], SONG_END = 0;
+const beatSec = () => 60 / S.bpm, eighth = () => 30 / S.bpm, sixteenth = () => 15 / S.bpm, barSec = () => 240 / S.bpm;
+const themeLen = () => themeRhythm().reduce((a, b) => a + b, 0);   // 締めで、テーマの最初の音から着地までの長さ（16分音符）
+const finaleLead = () => C.FINALE_LEAD;
+function makePlan() {   // 場面ごとの小節の数：テンポに合わせて、SONG_SEC の秒数に近くなるように
+  let at = 0;
+  PLAN = PARTS.map(([k, name]) => {
+    const st = C.SONG_BAR_STEP[k], bars = Math.max(k === 'finale' ? finaleLead() + 3 : st, Math.round(C.SONG_SEC[k] / barSec() / st) * st);
+    const p = { k, name, from: at, to: at + bars }; at = p.to; return p;
+  });
+  SONG_END = at;
+}
+const partOfBar = bar => bar < 0 ? PLAN[0] : PLAN.find(p => bar >= p.from && bar < p.to) || null;   // null：曲が終わった（結果）
+const partAtTime = t => { const p = partOfBar(Math.floor(t / barSec())); return p ? p.k : 'result'; };
+const P = k => PLAN.find(p => p.k === k);
+const landingStep = () => (P('finale').from + finaleLead()) * 16;   // 締めで、どばーする16分音符（小節の頭）
+const landT = () => landingStep() * sixteenth();
+
+// ============================================================
+//  音（広場版から：その場で合成する楽器・和音・刻み・音楽モード・仲間の「ジャーン」・締めの音）
+// ============================================================
+
+// ============================================================
+//  音（広場版から：その場で合成する楽器・和音・刻み・食べた音を和音に合わせる決まり・音楽モード）
+//  音の行き先：背景の音楽は「音楽」の音量 → こもり（音を消すものが近いと高い音が落ちる）→ duck（自分の音の瞬間だけ少し下げる）→ 全体。自分の音は「効果音」の音量 → 全体
+// ============================================================
+let AC = null, master = null, muffle = null, musicBus = null, sfxBus = null, duck = null, curBus = null, noiseBuf = null, distCurve = null, soundMode = C.SOUND_MODE_START;
+const outBus = () => curBus || sfxBus;
+const lv = L => (L / 8) ** 2;                   // 目盛り → 大きさ（8 が基準の1倍、10 で約1.6倍、0 で消音）
+function applyVol() {
+  if (!AC) return;
+  const t = AC.currentTime;
+  master.gain.setTargetAtTime(C.SOUND_VOLUME * lv(vol.all), t, 0.02);
+  musicBus.gain.setTargetAtTime(lv(vol.music), t, 0.02);
+  sfxBus.gain.setTargetAtTime(lv(vol.sfx), t, 0.02);
+}
+const midiHz = m => 440 * Math.pow(2, (m - 69) / 12), hz = midiHz;
+const hzMidi = f => 69 + 12 * Math.log2(f / 440);
+const wobble = () => 1 + (Math.random() - 0.5) * 0.01;   // 同じ音でも耳が疲れないよう、高さをほんの少し（±0.5%）だけ揺らす
+const wob = () => (Math.random() - 0.5) * 0.17;           //   同じことを半音の単位で
+function audioInit() {          // ブラウザの決まりで、最初のキー入力のあとに音を出せるようにする
+  if (AC) { if (AC.state === 'suspended' && !paused) AC.resume(); return; }
+  try {
+    AC = new (window.AudioContext || window.webkitAudioContext)();
+    audioChain(AC);
+    const un = AC.createBufferSource(); un.buffer = AC.createBuffer(1, 1, 22050); un.connect(AC.destination); un.start(0);   // iPhone で音を出せるようにする合図
+    if (soundMode === 'music') musicStart();
+  } catch (e) { AC = null; }
+}
+function audioChain(ac) {       // 音の行き先（音量 → 耳に痛い高い成分を落とす → 大きすぎる音をおさえる）と、音のもと
+  const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 7000;
+  const comp = ac.createDynamicsCompressor(); comp.threshold.value = -20; comp.ratio.value = 4;
+  master = ac.createGain(); master.gain.value = C.SOUND_VOLUME * lv(vol.all);
+  musicBus = ac.createGain(); sfxBus = ac.createGain();
+  musicBus.gain.value = lv(vol.music); sfxBus.gain.value = lv(vol.sfx);
+  duck = ac.createGain(); muffle = ac.createBiquadFilter(); muffle.type = 'lowpass'; muffle.frequency.value = 20000; muffle.Q.value = 0.4;   // こもり（音を消すものが近いとき）
+  musicBus.connect(muffle); muffle.connect(duck); duck.connect(master); sfxBus.connect(master);   // duck：自分の音が鳴る瞬間だけ、伴奏をほんの少し下げる
+  master.connect(lp); lp.connect(comp); comp.connect(ac.destination);
+  const n = ac.createBuffer(1, ac.sampleRate, ac.sampleRate), d = n.getChannelData(0);   // ざらざらした音のもと
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  noiseBuf = n;
+  distCurve = new Float32Array(1024);                                                     // ひずませる形（なめらかに頭を丸める）
+  for (let i = 0; i < 1024; i++) { const x = i / 1023 * 2 - 1; distCurve[i] = Math.tanh(x * 2.5) / Math.tanh(2.5); }
+}
+const live = () => AC && C.SOUND_VOLUME > 0;
+// 音のもと：発振器 →（ひずみ）→（フィルター）→ 音量の形 →（ゆれ）→（左右）→ 行き先。t は鳴らす時刻（音の時計）、f は高さ(Hz)、dur は長さ（秒）
+function syn(t, f, dur, vol, o = {}) {
+  if (!live() || !(vol > 0) || !(f > 0)) return;
+  t = Math.max(t, AC.currentTime);
+  const { type = 'sine', atk = 0.005, hold = 0, slide = 0, slideT = 0, flt = '', ff = 0, ffTo = 0, ffT = 0, q = 0.7, det = 0, vib = 0, trem = 0, drive = 0, pan = 0 } = o;
+  const end = t + Math.max(dur, atk + hold + 0.01), osc = AC.createOscillator(), g = AC.createGain();
+  osc.type = type; osc.frequency.setValueAtTime(f, t); if (det) osc.detune.value = det;
+  if (slide) osc.frequency.exponentialRampToValueAtTime(slide, t + (slideT || dur));
+  if (vib) {                                   // ビブラート：少し遅れてかかる
+    const l = AC.createOscillator(), lg = AC.createGain(); l.frequency.value = 5.5;
+    lg.gain.setValueAtTime(0, t); lg.gain.linearRampToValueAtTime(f * vib, t + Math.min(0.25, dur * 0.5));
+    l.connect(lg); lg.connect(osc.frequency); l.start(t); l.stop(end + 0.05);
+  }
+  let node = osc;
+  if (drive) { const pre = AC.createGain(), ws = AC.createWaveShaper(); pre.gain.value = drive; ws.curve = distCurve; node.connect(pre); pre.connect(ws); node = ws; }
+  if (flt) {
+    const fl = AC.createBiquadFilter(); fl.type = flt; fl.Q.value = q; fl.frequency.setValueAtTime(ff, t);
+    if (ffTo) fl.frequency.exponentialRampToValueAtTime(ffTo, t + (ffT || dur));
+    node.connect(fl); node = fl;
+  }
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + atk);
+  if (hold) g.gain.setValueAtTime(vol, t + atk + hold);
+  g.gain.exponentialRampToValueAtTime(0.0001, end);
+  node.connect(g); node = g;
+  if (trem) {                                  // 音量のゆれ（ビブラフォン）
+    const tg = AC.createGain(), l = AC.createOscillator(), lg = AC.createGain(); tg.gain.value = 0.8; l.frequency.value = trem; lg.gain.value = 0.2;
+    l.connect(lg); lg.connect(tg.gain); node.connect(tg); node = tg; l.start(t); l.stop(end + 0.05);
+  }
+  if (pan) { const sp = AC.createStereoPanner(); sp.pan.value = pan; node.connect(sp); node = sp; }
+  node.connect(outBus());
+  osc.start(t); osc.stop(end + 0.05);
+}
+function tone(freq, dur, type, vol, { slideTo = 0, delay = 0, attack = 0.005, pan = 0 } = {}) {   // いまから delay 秒後に鳴らす（pan：左(-1)〜右(1)）
+  if (!AC) return;
+  syn(AC.currentTime + Math.max(0, delay), freq, dur, vol, { type, slide: slideTo, atk: attack, pan });
+}
+function noise(t, dur, vol, type, freq, q = 1, atk = 0.003) {   // 短いざらざら音（チッ、タッ、シャーン）
+  if (!live() || !noiseBuf) return;
+  const src = AC.createBufferSource(), f = AC.createBiquadFilter(), g = AC.createGain();
+  src.buffer = noiseBuf; src.loop = true; f.type = type; f.frequency.value = freq; f.Q.value = q;
+  t = Math.max(t, AC.currentTime);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + atk); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(f); f.connect(g); g.connect(outBus()); src.start(t, Math.random() * 0.5); src.stop(t + dur + 0.02);
+}
+function noiseSweep(t, dur, vol, f0, f1, q = 1.2) {   // フィルターを動かしながら鳴らす「シューッ」
+  if (!live() || !noiseBuf) return;
+  t = Math.max(t, AC.currentTime);
+  const src = AC.createBufferSource(), f = AC.createBiquadFilter(), g = AC.createGain();
+  src.buffer = noiseBuf; src.loop = true; f.type = 'bandpass'; f.Q.value = q;
+  f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + dur * 0.9); g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.05);
+  src.connect(f); f.connect(g); g.connect(outBus()); src.start(t); src.stop(t + dur + 0.1);
+}
+function kick(t, vol, { f0 = 120, f1 = 45, len = 0.22, bend = 0.14, click = 0, drive = 0 } = {}) {   // バスドラム「ドン」
+  if (!live()) return;
+  t = Math.max(t, AC.currentTime);
+  const o = AC.createOscillator(), g = AC.createGain();
+  o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + bend);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+  let n = o;
+  if (drive) {                                 // ひずませて重く。耳に痛くならないよう、高い成分は落とす
+    const pre = AC.createGain(), ws = AC.createWaveShaper(), lp = AC.createBiquadFilter();
+    pre.gain.value = drive; ws.curve = distCurve; lp.type = 'lowpass'; lp.frequency.value = 2200;
+    n.connect(pre); pre.connect(ws); ws.connect(lp); n = lp;
+  }
+  n.connect(g); g.connect(outBus()); o.start(t); o.stop(t + len + 0.03);
+  if (click) noise(t, 0.012, vol * click, 'highpass', 3000);
+}
+
+// ---- 楽器 ----
+function marimba(t, f, vol, weight = 0, pan = 0) {   // 温かい木の音。weight（0〜1）が大きいほど低い音を重ねて重く
+  syn(t, f, 0.35 + 0.25 * weight, vol, { atk: 0.004, pan });
+  syn(t, f * 4, 0.06, vol * 0.2, { atk: 0.002, pan });
+  syn(t, f * 2, 0.15, vol * 0.12, { type: 'triangle', atk: 0.003, pan });
+  if (weight > 0.5) syn(t, f / 2, 0.45, vol * 0.6 * weight, { atk: 0.006, pan });
+}
+function glass(t, f, vol, pan = 0) {   // きらきらしたベル・ガラスの音：少しずれた倍音を長めに残す
+  syn(t, f, 0.9, vol, { atk: 0.002, pan });
+  syn(t, f * 2.76, 0.45, vol * 0.3, { atk: 0.002, pan });
+  syn(t, f * 5.4, 0.2, vol * 0.1, { atk: 0.002, pan });
+}
+function bell(t, f, vol, dur) {   // 鐘のような音
+  syn(t, f, dur, vol, { atk: 0.004 });
+  syn(t, f * 2, dur * 0.6, vol * 0.35, { atk: 0.004 });
+  syn(t, f * 3, dur * 0.35, vol * 0.12, { atk: 0.004 });
+}
+function tom(t, f, vol) { syn(t, f, 0.2, vol, { slide: f * 0.6, atk: 0.002 }); noise(t, 0.04, vol * 0.25, 'bandpass', f * 4); }   // タム（フィルの太鼓）
+function snare(t, vol) { noise(t, 0.13, vol, 'bandpass', 1900); syn(t, 190, 0.07, vol * 0.6, { type: 'triangle', slide: 150, atk: 0.002 }); }   // 小太鼓
+function crash(t, vol, len = 1.6) { noise(t, len, vol, 'highpass', 5200); noise(t, len * 0.4, vol * 0.7, 'bandpass', 3000); }   // シンバル「ジャン」
+function clap(t, v) { noise(t, 0.02, v, 'bandpass', 1400); noise(t + 0.012, 0.02, v * 0.8, 'bandpass', 1300); noise(t + 0.024, 0.09, v * 0.7, 'bandpass', 1200); }   // 手拍子
+function woodKnock(t, f, vol) {   // 木をコツンと叩く、こもった音（低いほど長く）
+  f *= wobble();
+  syn(t, f, f < 300 ? 0.11 : 0.07, vol, { slide: f * 0.82, atk: 0.002 });
+  noise(t, 0.025, vol * 0.25, 'bandpass', f * 2.2);
+}
+function epiano(t, f, dur, vol) {   // エレピ（ローズ風）：やわらかく叩いた金属の棒の、丸くて温かい音
+  if (!live()) return;
+  t = Math.max(t, AC.currentTime);
+  const c = AC.createOscillator(), m = AC.createOscillator(), mg = AC.createGain(), g = AC.createGain(), end = t + Math.max(0.35, dur) + 0.45;
+  c.frequency.value = f; m.frequency.value = f;
+  mg.gain.setValueAtTime(f * 1.5, t); mg.gain.exponentialRampToValueAtTime(f * 0.06, t + 0.5);   // 叩いた瞬間だけ、少し明るい
+  m.connect(mg); mg.connect(c.frequency);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.004); g.gain.exponentialRampToValueAtTime(vol * 0.45, t + 0.3); g.gain.exponentialRampToValueAtTime(0.0001, end);
+  c.connect(g); g.connect(outBus()); c.start(t); m.start(t); c.stop(end + 0.05); m.stop(end + 0.05);
+}
+function fmBell(t, f, vol) {   // エレピの高い所の、きらっとした鐘の音
+  if (!live()) return;
+  t = Math.max(t, AC.currentTime);
+  const c = AC.createOscillator(), m = AC.createOscillator(), mg = AC.createGain(), g = AC.createGain(), end = t + 1.1;
+  c.frequency.value = f; m.frequency.value = f * 3.5;
+  mg.gain.setValueAtTime(f * 2.2, t); mg.gain.exponentialRampToValueAtTime(f * 0.1, t + 0.8);
+  m.connect(mg); mg.connect(c.frequency);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, end);
+  c.connect(g); g.connect(outBus()); c.start(t); m.start(t); c.stop(end + 0.05); m.stop(end + 0.05);
+}
+function slap(t, f, dur, vol, pop) {   // チョッパーベース：親指で叩く「ブン」（pop：指ではじく、明るい「ペチッ」）
+  const d = Math.max(pop ? 0.1 : 0.14, dur * 0.9);
+  syn(t, f, d, vol, { type: 'sawtooth', atk: 0.002, flt: 'lowpass', ff: pop ? 3400 : 1900, ffTo: pop ? 700 : 260, ffT: 0.15, q: 2 });
+  syn(t, f, d, vol * 0.7, { atk: 0.003 });
+  noise(t, 0.014, vol * (pop ? 0.5 : 0.3), 'bandpass', pop ? 2600 : 1200);
+}
+function synthLead(t, f, dur, vol) {   // シンセのリード：やわらかい四角い音に、少しゆれ
+  syn(t, f, dur, vol, { type: 'square', atk: 0.012, hold: dur * 0.5, flt: 'lowpass', ff: 2600, ffTo: 1300, ffT: dur, q: 1, vib: 0.006 });
+  syn(t, f * 1.003, dur, vol * 0.5, { type: 'sawtooth', atk: 0.012, hold: dur * 0.5, flt: 'lowpass', ff: 1800, q: 0.7 });
+}
+function upright(t, f, dur, vol) {   // ウッドベース：太い弦をはじいた「ボン」
+  const d = Math.max(0.25, dur);
+  syn(t, f, d, vol, { type: 'triangle', atk: 0.006, flt: 'lowpass', ff: 1000, ffTo: 300, ffT: 0.3 });
+  syn(t, f, d, vol * 0.8, { atk: 0.005 });
+  noise(t, 0.02, vol * 0.25, 'lowpass', 700);
+}
+function trumpet(t, f, dur, vol) {   // ミュートしたトランペット：鼻にかかった「ワッ」
+  syn(t, f, dur, vol, { type: 'sawtooth', atk: 0.025, hold: dur * 0.6, flt: 'bandpass', ff: 700, ffTo: 1500, ffT: 0.08, q: 2.2, vib: 0.007 });
+  syn(t, f, dur, vol * 0.35, { type: 'square', atk: 0.03, hold: dur * 0.6, flt: 'lowpass', ff: 1700 });
+}
+function acid(t, f, dur, vol, lead) {   // アシッド：フィルターがうねる、くせのある電子音（4小節かけて開いたり閉じたりする）。lead：テーマ用に、閉じても明るく
+  const ph = (t - mus.t0) / (barSec() * 4), open = 0.5 - 0.5 * Math.cos(ph * TAU), cut = lead ? 1000 + 2200 * open : 240 + 1500 * open, d = Math.max(0.08, dur);
+  syn(t, f, d, vol, { type: 'sawtooth', atk: 0.003, flt: 'lowpass', ff: Math.min(7000, cut * 3.2), ffTo: cut, ffT: 0.1, q: lead ? 5 : 8 });
+  if (lead) syn(t, f * 1.006, d, vol * 0.4, { type: 'square', atk: 0.003, flt: 'lowpass', ff: 2400, q: 0.7 });
+}
+const METAL_HZ = [205.3, 369.6, 522.7];   // 金属の響き（ずれた倍音を重ねる）
+function metal(t, vol, d) {   // 金属的なノイズ
+  if (!live()) return;
+  t = Math.max(t, AC.currentTime);
+  const bp = AC.createBiquadFilter(), hp = AC.createBiquadFilter(), g = AC.createGain();
+  bp.type = 'bandpass'; bp.frequency.value = 6400; bp.Q.value = 1.4; hp.type = 'highpass'; hp.frequency.value = 4200;
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  bp.connect(hp); hp.connect(g); g.connect(outBus());
+  for (const f of METAL_HZ) { const o = AC.createOscillator(); o.type = 'square'; o.frequency.value = f * 1.7; o.connect(bp); o.start(t); o.stop(t + d + 0.02); }
+}
+// 設計図から名前で呼ぶ楽器：どれも (t 鳴らす時刻, m 音の高さ（MIDI 番号。太鼓は使わない）, l 長さ（秒）, v 大きさ, o 細かい指定)
+const VO = {
+  // 共通・ポップ
+  sine: (t, m, l, v, o) => syn(t, hz(m), l || 1, v, { atk: o.atk ?? 0.01 }),
+  tri: (t, m, l, v, o) => syn(t, hz(m), l || 0.3, v, { type: 'triangle', atk: o.atk ?? 0.005 }),
+  bassTri: (t, m, l, v) => syn(t, hz(m), l, v, { type: 'triangle', atk: 0.01 }),
+  padTri: (t, m, l, v, o) => syn(t, hz(m), l, v, { type: 'triangle', atk: o.atk ?? 0.3 }),
+  padSine: (t, m, l, v, o) => syn(t, hz(m), l, v, { atk: o.atk ?? 0.5 }),
+  grooveBass: (t, m, l, v) => { syn(t, hz(m), l, v, { type: 'triangle', atk: 0.004 }); syn(t, hz(m) * 2, l * 0.45, v * 0.3, { atk: 0.003 }); },
+  marimba: (t, m, l, v, o) => marimba(t, hz(m), v, o.w || 0),
+  leadPop: (t, m, l, v) => { marimba(t, hz(m), v); glass(t, hz(m + 12), v * 0.4); },
+  glass: (t, m, l, v) => glass(t, hz(m), v),
+  bell: (t, m, l, v) => bell(t, hz(m), v, l || 0.9),
+  woodDrum: (t, m, l, v) => syn(t, 150, 0.16, v, { slide: 95 }),
+  wood: (t, m, l, v) => woodKnock(t, hz(m), v),
+  kick: (t, m, l, v) => kick(t, v),
+  snare: (t, m, l, v) => snare(t, v),
+  tom: (t, m, l, v) => tom(t, hz(m), v),
+  crash: (t, m, l, v) => crash(t, v, l || 1.6),
+  hat: (t, m, l, v) => noise(t, 0.035, v, 'highpass', 8000),
+  hatSoft: (t, m, l, v) => noise(t, 0.03, v, 'highpass', 6500),
+  shaker: (t, m, l, v) => noise(t, 0.022, v, 'highpass', 7500),
+  openHat: (t, m, l, v) => noise(t, 0.09, v, 'highpass', 5000),
+  clapPop: (t, m, l, v) => { noise(t, 0.14, v, 'bandpass', 1500); syn(t, 200, 0.08, v * 0.86); },
+  clap: (t, m, l, v) => clap(t, v),
+  swish: (t, m, l, v) => noise(t, eighth(), v, 'bandpass', 3000),
+  // シティポップ
+  kickTight: (t, m, l, v) => kick(t, v, { f0: 150, f1: 50, len: 0.2, bend: 0.08, click: 0.25 }),
+  snareCity: (t, m, l, v) => { snare(t, v); noise(t + 0.02, 0.22, v * 0.25, 'bandpass', 2400); },
+  rim: (t, m, l, v) => { noise(t, 0.018, v, 'bandpass', 1700, 2); syn(t, 820, 0.025, v * 0.5, { type: 'triangle', atk: 0.001 }); },
+  epiano: (t, m, l, v) => epiano(t, hz(m), l || 0.6, v),
+  epBell: (t, m, l, v) => fmBell(t, hz(m), v),
+  slap: (t, m, l, v) => slap(t, hz(m), l, v, false),
+  slapPop: (t, m, l, v) => slap(t, hz(m), l, v, true),
+  slapDead: (t, m, l, v) => { noise(t, 0.03, v * 0.5, 'lowpass', 500); syn(t, hz(m), 0.06, v, { type: 'triangle', atk: 0.002 }); },   // 弦を押さえずに叩いた「ドッ」
+  gtrCut: (t, m, l, v) => { syn(t, hz(m), 0.08, v, { type: 'sawtooth', atk: 0.002, flt: 'bandpass', ff: 1800, q: 1.1 }); syn(t, hz(m) * 2, 0.05, v * 0.35, { type: 'square', atk: 0.002, flt: 'bandpass', ff: 2600, q: 1.4 }); },
+  gtrMute: (t, m, l, v) => { noise(t, 0.03, v, 'bandpass', 2300, 1.4); noise(t, 0.012, v * 0.6, 'bandpass', 1300); },   // 弦をおさえて刻む「チャッ」
+  lead: (t, m, l, v) => synthLead(t, hz(m), l || 0.25, v),
+  brass: (t, m, l, v) => { const d = l || 0.3; for (const c of [-9, 9]) syn(t, hz(m), d, v * 0.6, { type: 'sawtooth', det: c, atk: 0.03, hold: d * 0.5, flt: 'lowpass', ff: 2600, ffTo: 900, ffT: d, q: 0.8 }); },
+  padWarm: (t, m, l, v) => { const d = l || 2; syn(t, hz(m), d, v, { atk: 0.4, hold: d * 0.4 }); syn(t, hz(m) * 1.004, d, v * 0.4, { type: 'triangle', atk: 0.5, hold: d * 0.4 }); },
+  // エレクトロスウィング
+  kickSwing: (t, m, l, v) => kick(t, v, { f0: 140, f1: 48, len: 0.26, bend: 0.1, click: 0.3 }),
+  upright: (t, m, l, v) => upright(t, hz(m), l, v),
+  pianoStab: (t, m, l, v) => { const f = hz(m); syn(t, f, 0.35, v, { type: 'triangle', atk: 0.003 }); syn(t, f * 2, 0.15, v * 0.3, { atk: 0.002 }); syn(t, f * 3, 0.07, v * 0.12, { atk: 0.002 }); },
+  trumpet: (t, m, l, v) => trumpet(t, hz(m), l || 0.25, v),
+  clarinet: (t, m, l, v) => { const d = l || 0.3; syn(t, hz(m), d, v, { type: 'square', atk: 0.035, hold: d * 0.6, flt: 'lowpass', ff: 1500, q: 0.6, vib: 0.004 }); },
+  vibes: (t, m, l, v) => { const f = hz(m); syn(t, f, 1.2, v, { atk: 0.002, trem: 5 }); syn(t, f * 4, 0.3, v * 0.15, { atk: 0.002 }); syn(t, f * 10, 0.05, v * 0.05, { atk: 0.001 }); },
+  ride: (t, m, l, v) => { noise(t, 0.35, v, 'bandpass', 6800, 3); noise(t, 0.04, v * 0.8, 'highpass', 9000); },
+  hatSwing: (t, m, l, v) => noise(t, 0.045, v, 'highpass', 7000),
+  brush: (t, m, l, v) => noise(t, 0.12, v, 'bandpass', 3200, 0.5, 0.02),
+  snareBrush: (t, m, l, v) => { noise(t, 0.16, v, 'bandpass', 2600, 0.6, 0.01); syn(t, 200, 0.05, v * 0.4, { type: 'triangle' }); },
+  pizz: (t, m, l, v) => { const f = hz(m); syn(t, f, 0.26, v, { type: 'triangle', atk: 0.002 }); syn(t, f, 0.12, v * 0.55, { type: 'sawtooth', atk: 0.002, flt: 'lowpass', ff: 3200, ffTo: 700, ffT: 0.1, q: 1.4 }); noise(t, 0.012, v * 0.45, 'bandpass', 2600, 2); },   // はじいた弦（果物用）
+  woodblock: (t, m, l, v) => { syn(t, 1150 * wobble(), 0.05, v, { atk: 0.001 }); syn(t, 2500, 0.025, v * 0.4, { atk: 0.001 }); },
+  // サイケデリックトランス
+  kickPsy: (t, m, l, v) => kick(t, v, { f0: 200, f1: 42, len: 0.24, bend: 0.045, click: 0.35 }),
+  rollBass: (t, m, l, v) => { const f = hz(m), d = Math.max(0.09, l * 0.9); syn(t, f, d, v, { type: 'sawtooth', atk: 0.002, flt: 'lowpass', ff: 1100, ffTo: 180, ffT: d, q: 2.5 }); syn(t, f, d, v * 0.6, { atk: 0.002 }); },
+  acid: (t, m, l, v) => acid(t, hz(m), l || 0.12, v, false),
+  acidLead: (t, m, l, v) => acid(t, hz(m), l || 0.12, v, true),
+  acidPluck: (t, m, l, v) => { const f = hz(m); syn(t, f, 0.16, v, { type: 'sawtooth', atk: 0.002, flt: 'lowpass', ff: 4200, ffTo: 380, ffT: 0.09, q: 6 }); syn(t, f, 0.1, v * 0.4, { type: 'square', atk: 0.002, flt: 'lowpass', ff: 1600 }); },   // はじいたアシッド（果物用。うねりに関係なく、立ち上がりがはっきり）
+  pluck: (t, m, l, v) => syn(t, hz(m), 0.2, v, { type: 'square', atk: 0.002, flt: 'lowpass', ff: 3800, ffTo: 500, ffT: 0.16, q: 2 }),
+  supersaw: (t, m, l, v) => { const d = l || 0.25; for (const c of [-14, 0, 14]) syn(t, hz(m), d, v * 0.5, { type: 'sawtooth', det: c, atk: 0.005, flt: 'lowpass', ff: 3200, ffTo: 1200, ffT: d, q: 0.7 }); },
+  padSaw: (t, m, l, v) => { const d = l || 2; for (const c of [-8, 8]) syn(t, hz(m), d, v * 0.6, { type: 'sawtooth', det: c, atk: d * 0.3, hold: d * 0.3, flt: 'lowpass', ff: 900, q: 0.5 }); },
+  hatC: (t, m, l, v) => noise(t, 0.025, v, 'highpass', 9000),
+  hatO: (t, m, l, v) => noise(t, 0.13, v, 'highpass', 7200),
+  tomPsy: (t, m, l, v) => syn(t, hz(m), 0.22, v, { slide: hz(m) * 0.5, atk: 0.002 }),
+  zap: (t, m, l, v) => syn(t, hz(m) * 4, 0.12, v, { type: 'square', slide: hz(m), slideT: 0.1, atk: 0.002, flt: 'lowpass', ff: 2200 }),
+  sweep: (t, m, l, v) => noiseSweep(t, l || barSec(), v, 300, 6000),
+  // シュランツ
+  kickDist: (t, m, l, v) => kick(t, v, { f0: 170, f1: 40, len: 0.32, bend: 0.06, click: 0.2, drive: 5 }),
+  rumble: (t, m, l, v) => { const d = l || 0.25; syn(t, hz(m), d, v, { type: 'sawtooth', atk: 0.01, hold: d * 0.5, drive: 3, flt: 'lowpass', ff: 260, q: 1.2 }); },
+  stab: (t, m, l, v) => syn(t, hz(m), Math.max(0.05, l || 0.07), v, { type: 'square', atk: 0.002, drive: 4, flt: 'lowpass', ff: 2600, ffTo: 1200, ffT: 0.06, q: 1.2 }),
+  metal: (t, m, l, v) => metal(t, v, l || 0.06),
+  noiseLoop: (t, m, l, v) => { const ph = (t - mus.t0) / (barSec() * 2); noise(t, 0.08, v, 'bandpass', 900 + 2600 * (0.5 - 0.5 * Math.cos(ph * TAU)), 7); },
+  hatHard: (t, m, l, v) => { noise(t, 0.04, v, 'highpass', 7800); noise(t, 0.02, v * 0.6, 'bandpass', 5200, 3); },
+  tomInd: (t, m, l, v) => syn(t, hz(m), 0.16, v, { slide: hz(m) * 0.6, atk: 0.002, drive: 3, flt: 'lowpass', ff: 1800 }),
+  stabHit: (t, m, l, v) => { const f = hz(m); syn(t, f, 0.12, v, { type: 'square', atk: 0.001, drive: 2.5, flt: 'lowpass', ff: 2200, ffTo: 450, ffT: 0.08, q: 2 }); syn(t, f * 0.5, 0.1, v * 0.5, { atk: 0.002 }); noise(t, 0.01, v * 0.4, 'bandpass', 3000, 2); },   // たたいた金属の音（果物用）
+  clank: (t, m, l, v) => { const f = hz(m); syn(t, f, 0.12, v, { type: 'square', atk: 0.001, flt: 'bandpass', ff: f * 3, q: 5 }); syn(t, f * 2.71, 0.08, v * 0.5, { type: 'square', atk: 0.001, flt: 'bandpass', ff: f * 6, q: 5 }); },
+  ping: (t, m, l, v) => { const f = hz(m); syn(t, f, 0.35, v, { atk: 0.001 }); syn(t, f * 2.01, 0.2, v * 0.35, { atk: 0.001 }); syn(t, f * 3.98, 0.08, v * 0.12, { atk: 0.001 }); },
+  crashInd: (t, m, l, v) => { crash(t, v, l || 1.6); noise(t, (l || 1.6) * 0.5, v * 0.5, 'bandpass', 900, 2); },
+};
+function play(name, t, m, len, v, o = {}) { const f = VO[name]; if (f) f(t, m, len, v, o); }
+const mx = k => (S.mix && S.mix[k]) ?? 1;   // 出来事の音の大きさの、曲ごとの補正（設計図の mix。楽器によって聞こえる大きさがちがうので）
+
+
+// ---- 和音と曲の刻み（広場版から）
+const NOTE_PC = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+const QUAL = { '': [0, 4, 7], m: [0, 3, 7], 7: [0, 4, 7, 10], '△7': [0, 4, 7, 11], m7: [0, 3, 7, 10], 6: [0, 4, 7, 9], m6: [0, 3, 7, 9], 9: [0, 4, 7, 10, 14],
+  '△9': [0, 4, 7, 11, 14], m9: [0, 3, 7, 10, 14], add9: [0, 4, 7, 14], '7b9': [0, 4, 7, 10, 13], 13: [0, 4, 7, 10, 14, 21], sus4: [0, 5, 7], m7b5: [0, 3, 6, 10] };
+function chord(name) {   // 'F#7b9' のような名前 → { root：根音（MIDI。ベースの高さ）, pcs：音（0〜11。根音・3度・5度・7度…の順） }
+  const mm = /^([A-G])([#b]?)(.*)$/.exec(name), iv = mm && QUAL[mm[3]];
+  if (!iv) throw new Error('和音の名前が読めない：' + name);
+  const pc = (NOTE_PC[mm[1]] + (mm[2] === '#' ? 1 : mm[2] === 'b' ? -1 : 0) + 12) % 12;
+  return { name, root: 38 + ((pc - 2 + 12) % 12), pcs: iv.map(i => (pc + i) % 12) };
+}
+let CH = null, SW = [0, 0.25, 0.5, 0.75], THEME_N = [], THEME_SCHED = [];
+const MODES = { major: {}, minor: { 4: -1, 9: -1, 11: -1 }, phrygianDom: { 2: -1, 9: -1, 11: -1 } };   // 長調のテーマの音を、どの音だけ半音下げるか
+function tuneSong() {   // いまの曲の設計図から：和音・はね具合・テーマの音
+  const c = S.chords, cell = s => s.includes('|') ? s.split('|').map(chord) : chord(s), land = chord(c.land);
+  CH = { intro: c.intro.map(cell), a: c.a.map(cell), b: c.b.map(cell), build: c.build.map(cell), chorus: c.chorus.map(cell), calm: c.calm.map(chord),
+    fin: { hold: chord(c.hold), theme: c.theme.map(chord), land }, tonic: { root: land.root, pcs: land.pcs.slice(0, 3) } };
+  const r = S.swing || 0.5;   // 拍の中の4つの16分音符の位置（はねると、後ろの音がずれる）
+  SW = S.swingUnit === 16 ? [0, r * 0.5, 0.5, 0.5 + r * 0.5] : [0, r * 0.5, r, r + (1 - r) * 0.5];
+  tuneTheme();
+}
+// テーマ：いつも最初の候補「いまの」（曲ごとの設計図のリズムで）。切り替え（T キー）はやめた。ほかの候補は C.THEMES に残してある
+const themeIdx = 0;
+function themeRhythm() { return themeIdx ? C.THEMES[themeIdx].notes.map(n => n[1] * (S.theme.stretch || 1)) : S.theme.rhythm; }
+function tuneTheme() {   // いまの候補のテーマを、いまの曲の調・音階で
+  const map = MODES[S.theme.mode] || {}, mp = m => m + (map[((m % 12) + 12) % 12] || 0) + S.key;
+  THEME_N = C.THEMES[themeIdx].notes.map(n => mp(n[0])).concat([mp(C.THEME_LAND)]);
+  let at = -themeLen(); THEME_SCHED = themeRhythm().map((len, i) => { const n = { at, len, m: THEME_N[i] }; at += len; return n; });
+}
+const mus = { timer: null, t0: 0, next: 0, step: 0, bumpSlot: -1, groove: 0, grooveAt: -9 };
+const off16 = k => { const b = Math.floor(k / 4); return (b + SW[k - b * 4]) * beatSec(); };   // 曲の頭から k 番目の16分音符までの秒数（はね具合も）
+const T16 = k => mus.t0 + off16(k);
+function gridIdx(t, n) { let k = (Math.ceil((t - mus.t0) / sixteenth() / n - 1e-6) - 1) * n; while (T16(k) < t - 1e-6) k += n; return k; }   // t 以降で、n 個おきの刻みの最初
+const nextGrid = (t, n) => T16(gridIdx(t, n));
+function idx16(t) { let k = Math.floor((t - mus.t0) / sixteenth() + 1e-6); while (T16(k) > t + 1e-4) k--; while (T16(k + 1) <= t + 1e-4) k++; return k; }   // t の（直前の）16分音符
+function stepChord(k) {   // その16分音符の和音（曲の場面で決まる）
+  const bar = Math.floor(k / 16), p = partOfBar(bar), m = (n, len) => ((n % len) + len) % len, half = m(k, 16) >= 8;
+  const pick = c => Array.isArray(c) ? c[half ? 1 : 0] : c;
+  if (!p) return CH.calm[Math.floor(Math.max(0, bar - SONG_END) / 2) % CH.calm.length];
+  const j = bar - p.from;
+  if (p.k === 'finale') {                     // 受け → テーマの間（和音の数で等分）→ 着地
+    const L = finaleLead(), th = CH.fin.theme;
+    if (j < 1) return CH.fin.hold;
+    if (j >= L) return CH.fin.land;
+    return th[Math.min(th.length - 1, Math.floor(((j - 1) * 16 + m(k, 16)) / ((L - 1) * 16) * th.length))];
+  }
+  if (p.k === 'build') return pick(CH.build[Math.min(CH.build.length - 1, Math.floor(j / (p.to - p.from) * CH.build.length))]);
+  const list = CH[p.k]; return pick(list[m(j, list.length)]);
+}
+const chordAt = t => stepChord(idx16(t));
+const chordNotes = (ch, lo, hi) => { const out = []; for (let m = lo; m <= hi; m++) if (ch.pcs.includes(((m % 12) + 12) % 12)) out.push(m); return out; };
+const scaleNotes = (lo, hi) => { const out = []; for (let m = lo; m <= hi; m++) if (S.scale.includes((((m - S.key) % 12) + 12) % 12)) out.push(m); return out; };   // いまの曲の音階
+const scaleDeg = (i, oct) => 60 + S.key + 12 * oct + S.scale[i % S.scale.length] + 12 * Math.floor(i / S.scale.length);
+const rootIn = (ch, lo) => lo + ((((ch.root % 12) - lo) % 12) + 12) % 12;   // 和音の根音を、lo〜lo+11 の高さで
+const triad = ch => ({ pcs: ch.pcs.slice(0, 3) });  // 和音のうち、ド・ミ・ソにあたる3つの音（いちばん濁らない）
+const layer = (v, i) => clamp((v - C.MUSIC_LAYERS_AT[i]) / 0.8, 0, 1);   // その能力が段を超えると、少しずつ鳴り出す
+function beatPhase() { return (((song.t / beatSec()) % 1) + 1) % 1; }   // 拍の中のどこにいるか（0〜1）。拍に合わせて光らせるのに使う
+// 和音の音の書き方：'R' 根音 '3' '5' '7' 和音の3・5・7番目の音 '9'（根音の9度上）、' で1オクターブ上 , で下。数は半音
+function noteOf(tok, ch, base) {
+  if (typeof tok === 'number') return base + tok;
+  const mm = /^(R|3|5|7|9)([',]*)$/.exec(tok);
+  if (!mm) return base;
+  let iv = 0;
+  if (mm[1] === '9') iv = 14;
+  else if (mm[1] !== 'R') { const p = ch.pcs, k = { 3: 1, 5: 2, 7: 3 }[mm[1]]; iv = (((p[k] ?? p[p.length - 1]) - p[0]) % 12 + 12) % 12; }
+  for (const q of mm[2]) iv += q === "'" ? 12 : -12;
+  return base + iv;
+}
+// 刻みの音の選び方（chord・arp・n・hz）。音の高さのない楽器は null
+function pickNotes(o, ch, hit) {
+  const [lo, hi] = o.r || [36, 48];
+  if (o.hz) return [hzMidi(o.hz[hit % o.hz.length])];
+  if (o.chord) return (o.scale ? scaleNotes(lo, hi) : chordNotes(ch, lo, hi)).slice(0, o.max || 9);
+  if (o.arp !== undefined) {
+    const pool = o.scale ? scaleNotes(lo, hi) : chordNotes(ch, lo, hi);
+    return pool.length ? [pool[(o.arp === 'cycle' ? hit : o.arp[hit % o.arp.length]) % pool.length]] : [];
+  }
+  if (o.n) { const base = o.r ? rootIn(ch, lo) : ch.root, tok = o.n[hit % o.n.length]; return (Array.isArray(tok) ? tok : [tok]).map(k => noteOf(k, ch, base)); }
+  return null;
+}
+const ACC = { x: 1, X: 1.35, o: 0.7, g: 0.4 };
+const accOf = c => ACC[c] ?? (c >= '1' && c <= '9' ? +c / 10 : 0);
+const HITC = new Map();   // 譜面ごとに、それぞれの文字が何番目の音か（音の選び方をくり返すため）
+function hitInfo(pat) {
+  let h = HITC.get(pat);
+  if (!h) { h = { n: 0, at: [] }; for (const c of pat) { h.at.push(h.n); if (accOf(c)) h.n++; } HITC.set(pat, h); }
+  return h;
+}
+// 設計図の刻み1つを、16分音符 k（時刻 t）で鳴らす。lvl はその層の厚み（0〜1）
+function playPart(pt, k, t, lvl, ch) {
+  const [name, pat, o = {}] = pt, L = pat.length, i = ((k % L) + L) % L, a = accOf(pat[i]);
+  if (!a || (o.bars && Math.floor(k / 16) % o.bars !== (o.bar ?? o.bars - 1))) return;
+  const v = (o.v ?? 0.02) * a * lvl * C.MUSIC_VOLUME * (S.gain ?? 1);
+  if (v < 0.0003) return;
+  const h = hitInfo(pat), hit = h.at[i] + Math.floor(k / L) * h.n;
+  const len = (Array.isArray(o.len) ? o.len[hit % o.len.length] : o.len ?? 1) * sixteenth();
+  const ns = pickNotes(o, ch, hit);
+  if (!ns) play(name, t, 0, len, v, o); else for (const m of ns) play(name, t, m, len, v, o);
+}
+// 一度だけ鳴らす音の一覧（テーマの音・着地など）：[楽器, 音, 大きさ, 長さ, 細かい指定]。base はテーマの音（着地なら主音）
+function hits(list, base, t, mul = 1, ch = CH.tonic, noteLen = 0, music = false) {
+  for (const [name, nt, v, len = 0, o = {}] of list) {
+    if (o.long && noteLen <= eighth() * 1.01) continue;      // 長い音のときだけ
+    const L = len < 0 ? -len * noteLen : len, tt = t + (o.dt || 0);
+    const ms = nt === null ? [0] : nt === 'chord' ? chordNotes(ch, ...(o.r || [48, 84])) : Array.isArray(nt) ? nt.map(k => noteOf(k, ch, base)) : [base + nt];
+    for (const m of ms) play(name, tt, m, L, v * mul * (music ? C.MUSIC_VOLUME * (S.gain ?? 1) : 1), o);
+  }
+}
+
+
+// ---- 食べた音を鳴らす刻みと、和音に合わせる決まり（広場版の26回目【5】から）
+function poko(ratio) {   // 食べた手応え：音の高さのない、小さく短い「ぽこっ」（伴奏とぶつからないよう、小さく・こもった音）
+  if (!live()) return;
+  const t = AC.currentTime + 0.003;
+  noise(t, 0.03, 0.028 + 0.012 * ratio, 'bandpass', 650 + 350 * (1 - ratio), 3);
+  noise(t, 0.012, 0.012, 'bandpass', 2300, 2);
+}
+// 食べた音を鳴らす刻み：音の通り道（lane）ごとに、最後に予約した刻みを覚える
+//   次の刻み（grid 個おきの16分音符。食べてから EAT_PITCH_MIN 秒より後）が、前の音から gap より近いときだけ、1つ先の刻みへ送る
+//   2つ先へは送らない：1つ先も埋まっていたら、そこで和音として一緒に鳴らす（遅れがたまらない。どれも必ず鳴る）
+//   効果音モード：秒で同じように（前の音から sfxGap 秒あける。送るのは sfxGap 1つ分まで）
+const lanes = {};
+const swing8 = () => (S.swing || 0.5) > 0.5 && S.swingUnit !== 16;   // 8分音符がはねる曲（ダンスホール）
+const eatGrid = () => swing8() ? 2 : 1;                              // 食べた音を鳴らす刻み（16分音符いくつおき）：はねる8分の曲は、拍の頭とはねた8分だけ（26回目）
+function slotTime(lane, now, grid = eatGrid(), gap = grid, sfxGap = C.SFX_QUEUE_GAP) {
+  if (!(soundMode === 'music' && mus.timer)) {
+    const t0 = now + 0.03, key = lane + ':s', last = lanes[key] ?? -9, t = t0 - last >= sfxGap - 1e-6 ? t0 : Math.min(last + sfxGap, t0 + sfxGap);
+    lanes[key] = Math.max(last, t); return t;
+  }
+  const k0 = gridIdx(now + C.EAT_PITCH_MIN, grid), last = lanes[lane] ?? -1e9, k = k0 - last >= gap ? k0 : k0 + grid;
+  lanes[lane] = Math.max(last, k);
+  return T16(k);
+}
+function lanesReset() { for (const k in lanes) delete lanes[k]; }
+const pcOf = m => ((m % 12) + 12) % 12;
+const clashes = (m, ch) => !ch.pcs.includes(pcOf(m)) && ch.pcs.some(c => { const d = pcOf(m - c); return d === 1 || d === 11; });   // 和音の音でなく、和音の音と半音でぶつかる
+function fitNote(m, t, ch, dir = 0) {   // 食べた音を、和音に合わせる（26回目）：拍の頭は和音の音。そのほかは、ぶつかる音だけ近い音へ（dir：メロディの進む向きを優先）
+  if (!(soundMode === 'music' && mus.timer)) return m;
+  const strong = idx16(t + 0.002) % 4 === 0, ct = x => ch.pcs.includes(pcOf(x)), sc = x => S.scale.includes(pcOf(x - S.key));
+  if (ct(m) || (!strong && !clashes(m, ch))) return m;
+  const order = dir < 0 ? [-1, 1, -2, 2, -3, 3, -4, 4, -5, 5] : [1, -1, 2, -2, 3, -3, 4, -4, 5, -5];
+  for (const d of order) if (strong ? ct(m + d) : ct(m + d) || (sc(m + d) && !clashes(m + d, ch))) return m + d;
+  return m;
+}
+// ダンスホールの果物：ウッドベースの歩くベース。拍の頭は和音の音（前の音から2〜5半音、進む向きに）、はねた8分は次の拍の和音へなめらかにつなぐ音（ぶつからない音だけ）
+
+// ---- フレーズの形・楽器ごとの大きさ・仲間の楽器（広場版の宝石の列から。列そのものは使わず、粒のフレーズに使う）
+const VOICE_GAIN = { glass: 1.8, bassTri: 1.41, marimba: 1.5, slap: 1.08, slapPop: 1.08, epiano: 1.57, epBell: 2.3, trumpet: 2.0, upright: 0.77, clarinet: 1.17, pianoStab: 1.95, vibes: 2.0, brass: 3, pluck: 1.2, rollBass: 0.54, acid: 1.1, stab: 1.23, ping: 2.1 };
+const ROW_FORMS = [
+  { id: 'up', inv: 'down', len: 1, deg: j => j },                                              // 上がる
+  { id: 'down', inv: 'up', len: 1, deg: j => -j },                                             // 下がる
+  { id: 'arch', inv: 'valley', len: 1.4, deg: (j, m) => Math.min(j, m - 1 - j) * 1.5 },        // 山なり（上がって下がる。音を長めに）
+  { id: 'valley', inv: 'arch', len: 1.4, deg: (j, m) => -Math.min(j, m - 1 - j) * 1.5 },       // 谷（下がって上がる）
+  { id: 'skip', inv: 'skipDown', len: 0.7, deg: j => Math.floor(j / 2) + (j % 2 ? 2 : 0) },    // 1つ飛ばしで跳ねる（短く弾ませて）
+  { id: 'call', inv: 'callInv', len: 0.6, deg: j => (j % 2 ? 5 : 0) + Math.floor(j / 2) },     // 高い音と低い音のかけ合い
+  { id: 'leap', inv: 'leapDown', len: 0.5, deg: (j, m) => (j < m - 1 ? 0 : 5), last: 1.6 },    // 同じ音を刻んで、最後に跳ぶ（刻みは短く、跳んだ音は長く）
+];
+const FORM_NAME = { up: '上がる', down: '下がる', arch: '山なり', valley: '谷', skip: '1つ飛ばしで跳ねる', skipDown: '1つ飛ばしで跳ねて下がる', call: '高低のかけ合い', callInv: '高低のかけ合い（逆さ）', leap: '刻んで上へ跳ぶ', leapDown: '刻んで下へ跳ぶ' };
+const rowSnd = { next: 0, last: '', palTurn: -1, cry: null, cryMem: { last: '' } };   // last：前の列の、聞こえる形（向きを入れて）。palTurn：前の列を鳴らした仲間。cry：サビの結晶のフレーズ
+const hexRGB = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)).join(',');
+const NO_MELODY = /^(pad|rumble|tom|sweep|metal|noise|kick|hat|clap|snare|rim|crash|shaker|swish|brush|ride|gtrMute|gtrCut|woodDrum|openHat)/;   // メロディに向かない楽器（ゆっくり鳴り出す和音・太鼓など）
+function palVoices(i) {   // 仲間 i 人目の楽器のうち、音の高さがあってメロディに使えるもの（歯側を先に）
+  return [...S.teeth[i], ...S.body[i]].filter(pt => !NO_MELODY.test(pt[0]) && pickNotes(pt[2] || {}, CH.tonic, 0));
+}
+function pickForm(dir, mem = rowSnd) {   // 前と、聞こえる形が同じにならないように選ぶ（mem：列は rowSnd、サビの結晶は rowSnd.cryMem に、前の形を覚える）
+  const ok = ROW_FORMS.filter(f => (dir > 0 ? f.id : f.inv) !== mem.last && f.id !== mem.lastBase);
+  const f = ok[(Math.random() * ok.length) | 0] || ROW_FORMS[0];
+  mem.last = dir > 0 ? f.id : f.inv; mem.lastBase = f.id;
+  return f;
+}
+function voiceRange(o) {   // 楽器の音域から、メロディを鳴らす音の並び（低すぎるベースは1オクターブ上げる。狭ければ広げる。高すぎて耳に痛くならないよう、上は C7 くらいまで）
+  let [lo, hi] = o.r || [60, 76];
+  if (lo < 45) { lo += 12; hi += 12; }
+  hi = Math.max(hi, lo + 19);
+  if (hi > 96) { hi = 96; lo = Math.min(lo, hi - 19); }
+  return [lo, hi];
+}
+function phraseNote(form, dir, j, m, pool) {   // 形の j 音目（m 音のうち）：音の並び pool の中で、真ん中あたりから
+  const ds = []; for (let k = 0; k < m; k++) ds.push(form.deg(k, m) * dir);
+  const lo = Math.min(...ds), hi = Math.max(...ds), base = Math.round((pool.length - 1 - (hi - lo)) / 2) - lo;
+  return pool[clamp(Math.round(base + ds[j]), 0, pool.length - 1)];
+}
+
+// ---- 自分の音の、音符の光と duck（広場版から）
+let noteFxs = [];
+const NOTE_COL = { fruit: '255,160,50', both: '255,205,80', hard: '150,225,255', gem: '95,180,255', big: '255,85,150', crystal: '200,150,255' };
+function myNote(x, y, t, kind, n = 0.5, col = null) {   // col：色（'r,g,b'）。列を仲間の楽器で鳴らすときは、その仲間の色
+  if (!C.PLAY || x === undefined) return;
+  if (noteFxs.length < (lowFx ? 40 : 120)) noteFxs.push({ x, y, at: t, kind, col, n: clamp(n, 0, 1), on: false, t: 0, life: 0.8 + 0.35 * n,
+    vx: (Math.random() - 0.5) * 70, vy: -(80 + Math.random() * 50) * (0.8 + 0.4 * n), rot: (Math.random() - 0.5) * 0.7 });
+  duckAt(t);
+}
+const duckHold = { until: -9 };   // 仲間に会った「ジャーン」の間（音の時計で、この時刻まで）は、ほかの伴奏を下げたまま
+function duckAt(t) {   // 自分の音が鳴る瞬間だけ（どの場面でも）。下げてすぐ戻す（続けて鳴ると、少し下がったままになる）
+  if (!duck || !mus.timer || soundMode !== 'music' || songOver || t < duckHold.until) return;
+  const g = duck.gain, now = AC.currentTime;
+  g.setTargetAtTime(C.DUCK, Math.max(now, t - 0.008), 0.005);
+  g.setTargetAtTime(1, Math.max(now, t + 0.05), 0.06);
+}
+function duckReset() { duckHold.until = -9; if (duck && AC) { duck.gain.cancelScheduledValues(0); duck.gain.setValueAtTime(1, AC.currentTime); } }
+function duckFor(t, dur, level) {   // t から dur 秒、伴奏を level まで下げて、そのあと戻す（仲間に会った「ジャーン」の間）
+  if (!duck || !mus.timer || soundMode !== 'music') return;
+  const g = duck.gain, now = AC.currentTime;
+  g.cancelScheduledValues(now); g.setValueAtTime(g.value, now);
+  g.setTargetAtTime(level, Math.max(now, t - 0.02), 0.02);
+  g.setTargetAtTime(1, Math.max(now, t + dur), 0.12);
+  duckHold.until = t + dur + 0.3;
+}
+function noteFxTick(dt) {   // 音が鳴る時刻になったら出す（スピーカーから音が出るまでの遅れの分も待つ）
+  const lat = AC ? AC.outputLatency || AC.baseLatency || 0 : 0, now = AC ? AC.currentTime + lat : Infinity;
+  for (const p of noteFxs) {
+    if (p.on) p.t += dt;
+    else if (now >= p.at - 0.004 || p.at - now > 3) { p.on = true; p.shownAt = AC ? AC.currentTime : 0; }
+  }
+  if (noteFxs.length) noteFxs = noteFxs.filter(p => !p.on || p.t < p.life);
+}
+function drawNoteFx() {
+  const VS = view.VS;
+  for (const p of noteFxs) {
+    if (!p.on) continue;
+    const u = p.t / p.life, a = u < 0.12 ? u / 0.12 : 1 - Math.pow((u - 0.12) / 0.88, 1.5), pop = u < 0.15 ? 0.7 + 0.5 * Math.sin(u / 0.15 * Math.PI / 2) : 1.2 - 0.2 * Math.min(1, (u - 0.15) / 0.3);
+    const s = (12 + 14 * p.n) * pop / VS, x = p.x + p.vx * p.t / VS, y = p.y + p.vy * p.t / VS;
+    const col = p.col || (p.kind === 'rainbow' ? null : NOTE_COL[p.kind] || NOTE_COL.gem), hue = (clock * 240 + p.at * 97) % 360;
+    const tint = al => col ? `rgba(${col},${al})` : `hsla(${hue},95%,66%,${al})`;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(p.rot);
+    ctx.fillStyle = tint(0.25 * a); ctx.beginPath(); ctx.arc(0, 0, s * 1.05, 0, TAU); ctx.fill();   // やわらかい光
+    ctx.fillStyle = tint(a); ctx.strokeStyle = `rgba(40,25,10,${0.5 * a})`; ctx.lineWidth = Math.max(0.8, s * 0.09);
+    ctx.beginPath(); ctx.ellipse(-s * 0.16, s * 0.34, s * 0.34, s * 0.25, -0.45, 0, TAU); ctx.fill(); ctx.stroke();   // 音符の玉
+    ctx.fillRect(s * 0.08, -s * 0.62, s * 0.13, s * 0.98);                                                              // 棒
+    ctx.beginPath(); ctx.moveTo(s * 0.21, -s * 0.62); ctx.quadraticCurveTo(s * 0.62, -s * 0.36, s * 0.5, -s * 0.02); ctx.quadraticCurveTo(s * 0.48, -s * 0.28, s * 0.21, -s * 0.32); ctx.closePath(); ctx.fill();   // 旗
+    ctx.fillStyle = `rgba(255,255,255,${0.8 * a})`; ctx.beginPath(); ctx.ellipse(-s * 0.26, s * 0.27, s * 0.1, s * 0.06, -0.45, 0, TAU); ctx.fill();   // つや
+    ctx.restore();
+  }
+}
+
+function popSound(t) {   // 噴き出す瞬間の「ぽんっ」：はじける音
+  syn(t, 820, 0.16, 0.13, { slide: 140, atk: 0.003 });
+  syn(t, 1640, 0.06, 0.04, { slide: 600, atk: 0.002 });
+  noise(t, 0.07, 0.05, 'bandpass', 1300);
+}
+
+// ---------------- 音楽モード ----------------
+//   曲の設計図の刻み（base・body・teeth・groove・chorus・build・finale）を、16分音符ずつ鳴らす（はね具合で、裏の音を後ろにずらす）
+//   大きさの層（低くて温かい楽器）は体の大きさで、硬さの層（高くてきらきらした楽器）は歯の硬さで、それぞれ厚くなる
+//     → 片方が遅れていると、その楽器の層だけが薄く、音楽に「穴」が空いて聞こえる
+//   1曲の構成：イントロ → Aメロ → Bメロ → ため（「シューッ」と小太鼓）→ サビ（バンド全員）→ 締め（テーマをバンド全員で、主音に着地）→ 結果（静かな和音）
+// 音楽が曲の時計になっているか（音楽モードで鳴っている・ふつうの速さ）
+const musicLive = () => !!(AC && AC.state === 'running' && mus.timer && soundMode === 'music' && C.SOUND_VOLUME > 0 && SIM_SPEED === 1 && song.live);   // 迷路版：音の時計が止まっている間（ブラウザがまだ音を出せない）は、ふつうの時計で進む
+// 音楽の刻みを、曲の進み（song.t）にそろえる
+function alignMusic() {
+  if (!AC || !mus.timer) return;
+  if (song.t <= 0) song.t = -0.05;
+  mus.t0 = AC.currentTime - song.t;
+  mus.step = Math.max(0, gridIdx(AC.currentTime, 1)); mus.next = T16(mus.step);
+  lanesReset();   // 刻みの番号が変わるので、覚えていた刻みは忘れる
+}
+function musicStart() {
+  if (!AC || mus.timer) return;
+  mus.timer = setInterval(musicTick, 25);
+  alignMusic();
+}
+function musicStop() { if (mus.timer) { clearInterval(mus.timer); mus.timer = null; } }
+function musicTick() {
+  if (!AC || soundMode !== 'music' || C.SOUND_VOLUME <= 0 || !song.live) return;   // 曲が始まる（最初に動く）までは、静か
+  const now = AC.currentTime;
+  if (mus.next < now - 0.05) { mus.step = gridIdx(now, 1); mus.next = T16(mus.step); }   // 止まっていた分はとばす
+  curBus = musicBus;            // 背景の音楽は「音楽」の音量を通す
+  try { while (mus.next < now + 0.15) { playStep(mus.step, mus.next); mus.step++; mus.next = T16(mus.step); } }
+  finally { curBus = null; }
+}
+// 演奏：伴奏の「勢い」（どの場面でも）。食べると上がり（1つで DRIVE_PER_EAT）、最後に食べてから DRIVE_HOLD 拍はそのまま、そのあと DRIVE_FADE 拍で 0 へ
+const drive = { lv: 0, at: -99 };      // lv：最後に食べたときの勢い、at：その時刻（音の時計）
+const audioNow = () => AC ? AC.currentTime : clock;
+function driveNow(t) { const d = t - drive.at, h = C.DRIVE_HOLD * beatSec(); return d < h ? drive.lv : Math.max(0, drive.lv * (1 - (d - h) / (C.DRIVE_FADE * beatSec()))); }
+function driveUp() { const t = audioNow(); drive.lv = Math.min(1, driveNow(t) + C.DRIVE_PER_EAT); drive.at = t; }
+const driveAt = t => C.PLAY ? driveNow(t) : 1;          // 演奏OFF：いつも 1（14回目と同じ）
+const BEAT = /^(kick|hat|openHat)/;                      // 勢いが 0 でも残す、基本の刻み（バスドラム・ハイハット）
+const SEC = { intro: 'i', a: 'a', b: 'b', build: 'k', chorus: 'c' };
+function playStep(k, t) {        // 16分音符1つぶんの背景
+  const bar = Math.floor(k / 16), p = partOfBar(bar);
+  if (!p) return playCalm(k, t);                                     // 曲が終わった：静かな和音
+  if (p.k === 'finale') return playFinale(k, t, bar - p.from);       // 締め：テーマをバンド全員で
+  const ch = stepChord(k), sec = SEC[p.k], chorus = p.k === 'chorus', build = p.k === 'build', all = chorus ? 1 : 0, lastBuild = build && bar === p.to - 1;
+  const D = driveAt(t);                                               // 演奏：伴奏は、勢いの分だけ厚く（どの場面でも。演奏OFF は、いつもいちばん厚く）
+  const G = chorus ? D : mus.groove;                                 // 果物の層
+  const keep = lerp(C.DRIVE_KEEP, 1, D);                             //   勢いが 0 でも残す刻み（土台・バスドラム・ハイハット）は、少しだけ小さく
+  const go = (list, lvl, thin = false, d = D) => { for (const pt of list) { const o = pt[2] || {}; if ((o.in && !o.in.includes(sec)) || (o.last && !lastBuild) || (o.from && G < o.from)) continue; playPart(pt, k, t, thin ? lvl * (BEAT.test(pt[0]) ? keep : d) : lvl, ch); } };
+  const fresh = i => C.PLAY && C.PALS && pals.list[i] && pals.list[i].joinBar !== undefined && bar < pals.list[i].joinBar + 1;   // 仲間に会った直後の1小節：その仲間の楽器は、勢いに関係なく
+  go(S.base, keep);
+  S.body.forEach((list, i) => { const l = C.PALS ? palLv(i, bar) : Math.max(layer(ham.body, i), all); if (l > 0) go(list, l, true, fresh(i) ? 1 : D); });     // 大きさの層（低くて温かい楽器）。勢いの分だけ（バスドラム・ハイハットは残す）
+  S.teeth.forEach((list, i) => { const l = C.PALS ? palLv(i, bar) : Math.max(layer(ham.teeth, i), all); if (l > 0) go(list, l, true, fresh(i) ? 1 : D); });   // 硬さの層（高くてきらきらした楽器）。仲間ON：仲間にした人の楽器だけ
+  if (G > 0.02) go(S.groove, G);
+  if (build) { if (k === p.from * 16) riser(t, mus.t0 + P('chorus').from * barSec()); go(S.build, 1); }    // ため：サビの頭へ「シューッ」
+  if (chorus) { if (k === p.from * 16) { play(S.kit.crash, t, 0, 1.8, 0.05); play(S.kit.kick, t, 0, 0, 0.14); } go(S.chorus, D); }   // サビの頭：「ジャン」。サビの層は勢いの分だけ
+}
+// 締め：1小節目はサビを受けて「ジャン」→ テーマの間（設計図の和音の上で）、遊んでいる間に列で聞いてきたテーマを、
+//   その曲の編曲でバンド全員で最初から最後まで演奏する → 小節の頭で、テーマの最後の音が主音に着地（噴き出しと同時に「ぽんっ」）→ 余韻を残して消えていく
+function playFinale(k, t, j) {
+  const F = S.finale, L = finaleLead(), land = landingStep(), ch = stepChord(k), st = S.theme.stab;
+  void st;   // 25回目：テーマのメロディは、噴き出したあとの花でとっておく（噴き出す前は、バンドの伴奏だけ）
+  if (k < land) {
+    if (j === 0) for (const pt of F.hit) playPart(pt, k, t, 1, ch);
+    const dv = driveAt(t), D = lerp(C.DRIVE_FINALE_MIN, 1, dv), keep = lerp(C.DRIVE_KEEP, 1, dv);   // 演奏：テーマの間のバンドも、勢いで厚さが変わる（テーマのメロディはそのまま）
+    for (const pt of (j === 0 && L === 2 ? F.roll : F.band)) playPart(pt, k, t, BEAT.test(pt[0]) ? keep : D, ch);
+    if (j === L - 1) for (const pt of F.fill) playPart(pt, k, t, 1, ch);   // 着地の前の小節の終わりに、フィル（ドラムのつなぎ）
+  }
+  if (k === land) {                                    // 噴き出す瞬間：属和音で「ジャン」と「ぽんっ」（まだ終わらない。主音に着くのは、花が咲いたとき）
+    if (charge.log) charge.log.land = { audio: +t.toFixed(3) };
+    burstHit(t);
+  }
+  if (k > land) playCalm(k, t);                        // 余韻に重ねて、結果の画面の静かな和音が入る
+}
+// 結果の画面：ゆっくり息をするような、静かな和音だけ（食べた音とまちがえないよう、粒の音は鳴らさない）。しばらくしたら静かに止む
+function playCalm(k, t) {
+  if (!isFinite(song.calmFrom)) return;
+  const k0 = Math.ceil(song.calmFrom / beatSec() - 1e-6) * 4, j = k - k0, bar = j / 16;   // 着地から END_CALM_AFTER 秒たった次の拍から
+  if (j < 0 || j % 32 || bar >= 16) return;          // 2小節ごとに、16小節まで（だんだん小さく）
+  const ch = CH.calm[(bar / 2) % CH.calm.length], d = barSec() * 2, v = C.MUSIC_VOLUME * (1 - bar / 18), first = bar === 0;   // 最初の和音は、特にゆっくり立ち上がる
+  for (const m of chordNotes(ch, 52, 71)) syn(t, hz(m), d * 1.15, 0.005 * v, { type: 'triangle', atk: d * (first ? 0.6 : 0.45), hold: d * 0.2, flt: 'lowpass', ff: 1100 });
+  syn(t, hz(rootIn(ch, 36)), d * 1.1, 0.018 * v, { atk: d * (first ? 0.55 : 0.35) });
+}
+function riser(t, end) {         // ため：サビの頭（end）へ向けて「シューッ」と盛り上げる
+  noiseSweep(t, Math.max(0.2, end - Math.max(t, AC.currentTime)), 0.04, 400, 6000);
+  noise(end, 1.6, 0.03, 'highpass', 4000);
+}
+
+
+// ---- 一時停止の音（広場版から）
+let hushT = 0;
+function audioHush() {   // 音を、すっと小さくしてから止める（0.25秒）
+  if (!AC || !master) return;
+  const g = master.gain, t = AC.currentTime;
+  g.cancelScheduledValues(t); g.setValueAtTime(Math.max(0.0001, g.value), t); g.setTargetAtTime(0.0001, t, 0.05);
+  clearTimeout(hushT); hushT = setTimeout(() => { if (paused && AC.state === 'running') AC.suspend().catch(() => {}); }, 250);
+}
+function audioWake() {   // 止めた音を戻す（すっと大きく）
+  clearTimeout(hushT);
+  if (!AC || !master) return;
+  const up = () => { const g = master.gain, t = AC.currentTime; g.cancelScheduledValues(t); g.setValueAtTime(Math.max(0.0001, g.value), t); g.setTargetAtTime(C.SOUND_VOLUME * lv(vol.all), t, 0.04); };
+  if (AC.state === 'suspended') AC.resume().then(up).catch(() => {}); else up();
+}
+
+
+// ============================================================
+//  迷路（ここから下は、迷路版のために新しく書いた）
+// ============================================================
+//   # 壁（生け垣）  . 音の粒  o 大きな実  T 木のブロック（通れない。枯れた木と、取り戻した仲間の演奏する所）  H 音を消すものの穴（ブロックの上の角）
+//   S スタート（巣。木のすぐ下。粒なし）  = トンネル（左右の端がつながる。粒なし）
+//   17列 × 23行。通路の幅は1マス、行き止まりはない。左右対称。木のまわりの輪（row 11・15、col 5・11）が、最初に取り戻せる小さなエリア。木はまん中より少し下（上のエリアは広く、下は狭い）
+const MAP = [
+  '#################',
+  '#o......#......o#',
+  '#.#####.#.#####.#',
+  '#...............#',
+  '#.###.#####.###.#',
+  '#.....#...#.....#',
+  '###.###.#.###.###',
+  '#..o..#...#..o..#',
+  '#.###.#.#.#.###.#',
+  '#...#.......#...#',
+  '#.#.###.#.###.#.#',
+  '#...............#',
+  '#.###.HTTTH.###.#',
+  '=.....TTTTT.....=',
+  '#.###.TTTTT.###.#',
+  '#.#.....S.....#.#',
+  '#.#.###.#.###.#.#',
+  '#..o#.......#o..#',
+  '###.#.#####.#.###',
+  '#.....#...#.....#',
+  '#.###.#.#.#.###.#',
+  '#o.............o#',
+  '#################',
+];
+const COLS = MAP[0].length, ROWS = MAP.length;
+const wrapC = c => ((c % COLS) + COLS) % COLS;
+const cell = (c, r) => (r < 0 || r >= ROWS ? '#' : MAP[r][wrapC(c)]);
+const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];   // 0 右・1 下・2 左・3 上
+const passable = (c, r) => { const ch = cell(c, r); return ch !== '#' && ch !== 'T' && ch !== 'H'; };
+const open = (c, r, d) => passable(c + DIRS[d][0], r + DIRS[d][1]);
+const START = { c: 8, r: 15 }, TUNNEL_ROW = 13, HOLES = [{ c: 6, r: 12, out: [6, 11] }, { c: 10, r: 12, out: [10, 11] }];
+const BLOCK = { x0: 6, y0: 12, x1: 11, y1: 15 };   // 木のブロック（マスの範囲。右下は含まない）
+// エリア：0 木のまわりの輪（小さめ。最初に取り戻せる）・1 左上・2 右上・3 左下・4 右下。仲間 i 人目が、エリア i に閉じこめられている
+const AREA_N = 5;
+const onRing = (c, r) => ((r === 11 || r === 15) && c >= 5 && c <= 11) || ((c === 5 || c === 11) && r >= 11 && r <= 15);
+function areaOfTile(c, r) {
+  const ch = cell(c, r);
+  if (ch !== '.' && ch !== 'o') return -1;
+  if (onRing(c, r)) return 0;
+  if (r <= 13) return c <= 8 ? 1 : 2;
+  return c <= 8 ? 3 : 4;
+}
+const PAL_KINDS = ['squirrel', 'bird', 'frog', 'mole', 'mouse'];   // リス・小鳥・カエル・モグラ・ネズミ（エリア 0〜4 の順）
+const palKind = i => PAL_KINDS[i];
+// エリアの色：地面（くすんでいる間は灰色に寄せる）と、粒の色（その仲間の色。暗い仲間は、明るい方の色）
+const AREA_GROUND = ['#d9c98f', '#cfe0a0', '#b9e0c8', '#e0c9a8', '#c9d0ea'];
+const DOT_COL = { squirrel: '#ffb264', bird: '#ffe14a', frog: '#9fe36a', mole: '#f0c9a4', mouse: '#e4e6ff' };
+const PAL_SPOT = [[8, 16], [4, 4], [12, 4], [4, 18], [12, 18]];   // 閉じこめられた仲間の泡（生け垣の上のマス）
+const TREE_SLOT = [[8.5, 14.72], [7.0, 14.62], [10.0, 14.62], [6.62, 13.55], [10.38, 13.55]];   // 取り戻した仲間が、木のそばで演奏する所（エリアの順ではなく、着いた順）
+// どのマスがどのエリアの色か（壁も、いちばん近い通路のエリアの色に。木のブロックとトンネルは -1）
+const REGION = (() => {
+  const g = MAP.map((row, r) => [...row].map((ch, c) => areaOfTile(c, r))), q = [];
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (g[r][c] >= 0) q.push([c, r]);
+  for (let i = 0; i < q.length; i++) {
+    const [c, r] = q[i];
+    for (const [dx, dy] of DIRS) {
+      const x = c + dx, y = r + dy;
+      if (x < 0 || y < 0 || x >= COLS || y >= ROWS || g[y][x] !== -1 || cell(x, y) !== '#') continue;
+      g[y][x] = g[r][c]; q.push([x, y]);
+    }
+  }
+  return g;
+})();
+// BFS：あるマスから、ほかのマスまでの通路の歩数（音を消すもの・ボット・仲間の走る道で使う）
+function bfsFrom(c0, r0) {
+  const d = new Int16Array(COLS * ROWS).fill(-1), q = [[c0, r0]];
+  d[r0 * COLS + c0] = 0;
+  for (let i = 0; i < q.length; i++) {
+    const [c, r] = q[i];
+    for (const [dx, dy] of DIRS) {
+      const x = wrapC(c + dx), y = r + dy;
+      if (y < 0 || y >= ROWS || d[y * COLS + x] >= 0 || !passable(x, y)) continue;
+      d[y * COLS + x] = d[r * COLS + c] + 1; q.push([x, y]);
+    }
+  }
+  return d;
+}
+const DIST = [];   // DIST[r*COLS+c]：そのマスからの BFS（通れるマスだけ）。最初に1回だけ作る
+for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) DIST.push(passable(c, r) ? bfsFrom(c, r) : null);
+const stepsTo = (c0, r0, c1, r1) => { const d = DIST[r1 * COLS + c1]; return d ? d[r0 * COLS + c0] : -1; };
+function pathTiles(c0, r0, c1, r1) {   // 通路の上の道（マスの並び。c0,r0 から c1,r1 まで）
+  const d = DIST[r1 * COLS + c1]; if (!d || d[r0 * COLS + c0] < 0) return [[c1, r1]];
+  const out = [[c0, r0]];
+  let c = c0, r = r0;
+  for (let guard = 0; guard < COLS * ROWS && (c !== c1 || r !== r1); guard++) {
+    let best = null;
+    for (const [dx, dy] of DIRS) { const x = wrapC(c + dx), y = r + dy; if (y >= 0 && y < ROWS && d[y * COLS + x] >= 0 && d[y * COLS + x] < d[r * COLS + c] && (!best || d[y * COLS + x] < d[best[1] * COLS + best[0]])) best = [x, y]; }
+    if (!best) break;
+    [c, r] = best; out.push([c, r]);
+  }
+  return out;
+}
+const nearestPath = (x, y) => {   // いちばん近い通路のマス（泡の上の仲間が、通路へ出る所）
+  let best = null, bd = Infinity;
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (passable(c, r)) { const d = Math.hypot(c + 0.5 - x, r + 0.5 - y); if (d < bd) { bd = d; best = [c, r]; } }
+  return best;
+};
+// 1匹目の決まった道：輪の上の穴から出て、迷路のまん中を大きく回る（見て覚えれば、よけ方が分かる）
+const PATROL = (() => {
+  const way = [[6, 11], [1, 11], [1, 17], [3, 17], [3, 15], [13, 15], [13, 17], [15, 17], [15, 11]], out = [];
+  for (let k = 0; k < way.length; k++) { const [a, b] = way[k], [c, d] = way[(k + 1) % way.length]; out.push(...pathTiles(a, b, c, d).slice(0, -1)); }
+  return out;
+})();
+
+// ---------------- 状態 ----------------
+let clock = 0, started = false, songOver = false, shake = 0, time = 0;
+let dots = [], areas = [], spills = [], flyers = [], rings = [], sparks = [], mons = [];
+const dotMap = new Map();   // マス → 粒
+const ham = {};
+const song = { t: 0, live: false, part: null, burst: false, burstN: 0, endAt: Infinity, calmFrom: Infinity, times: {}, hop: null, bloom: null, bloomBus: null, burstAt: -1, chorusEaten: 0, finalAt: Infinity, monEaten: 0 };
+const feast = () => song.part === 'chorus';
+const budCount = () => started && !feast() && song.part !== 'build' && !song.burst && !songOver && song.part !== 'finale';   // エリアを取り戻せる間（サビの前まで）
+const tree = { x: 8.5, y: 14.92, h: 2.75, w: 3.6, branches: [], branchesX: [], buds: [], zone: null };
+const buds = { got: 0, lit: 0, fly: [], litAt: [], cleared: false, clearAt: -9, pitch: 0, log: [], star: [] };
+const pals = { list: [], joined: 0 };   // 仲間 i 人目（エリア i）：state 'trapped' 泡の中／'run' 木へ走る／'play' 木のそばで演奏／'party' 'dance' 'sit' 締め
+const palR = () => 0.36;
+const palLv = (i, bar) => { const p = pals.list[i]; return p && p.joinBar !== undefined && bar >= p.joinBar ? 1 : 0; };
+const charge = { state: 'off', lv: 0, schedK: 0, pop: 0, log: null };
+const chargeLive = () => song.part === 'finale' && !song.burst && !songOver;
+const chargeMax = () => charge.lv >= C.CHARGE_STEPS;
+const cam = { focus: 0, zoom: 1 };   // 締め：木を中心に寄る（それ以外は、カメラは動かない）
+const LOG = { hits: [], areas: [], notes: [], monEat: 0, spills: 0, picked: 0 };   // 確かめ用の記録（ボット・測定）
+const budN = () => C.BUD_N, budClear = () => C.BUD_CLEAR;
+const budShown = () => buds.cleared || (song.bloom && song.bloom.b > budClear()) ? budN() : budClear();   // いま見せるつぼみの数（クリアが決まるまでは、クリアに要る分だけ）
+const extraGrow = () => buds.cleared ? clamp((clock - buds.clearAt) / 0.6, 0, 1) : song.bloom && song.bloom.b > budClear() ? 1 : 0;   // おまけの小枝とつぼみが、のびて出てくる具合
+const input = { want: -1 };   // 行きたい向き（先入れ）。-1：なし
+
+function reset() {
+  clock = 0; time = 0; started = false; songOver = false; shake = 0;
+  Object.assign(song, { t: 0, live: false, part: null, burst: false, burstN: 0, endAt: Infinity, calmFrom: Infinity, times: {}, hop: null, bloom: null, burstAt: -1, chorusEaten: 0, finalAt: Infinity, monEaten: 0 });
+  Object.assign(ham, { x: START.c + 0.5, y: START.r + 0.5, dir: -1, face: 0, want: -1, pouch: 0, items: [], step: 0, eatT: 9, blinkAt: 2.5, blink: 0, hitAt: -9, safeUntil: -9, z: 0, shiver: 0, sq: 0, sqV: 0, sqAng: 0, pulse: 0, relief: 0, hits: 0, puff: 0, popT: 9, moving: 0, cheekW: 0, cheekV: 0 });
+  Object.assign(buds, { got: 0, lit: 0, fly: [], litAt: [], cleared: false, clearAt: -9, pitch: 0, log: [], star: [] });
+  Object.assign(charge, { state: 'off', lv: 0, schedK: 0, pop: 0, log: null });
+  Object.assign(cam, { focus: 0, zoom: 1 });
+  Object.assign(LOG, { hits: [], areas: [], notes: [], monEat: 0, spills: 0, picked: 0 });
+  dots = []; spills = []; flyers = []; rings = []; sparks = []; noteFxs = []; dotMap.clear();
+  areas = Array.from({ length: AREA_N }, (_, i) => ({ i, n: 0, left: 0, restored: false, at: -9, songT: null, wx: 0, wy: 0, wave: 0 }));
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    const a = areaOfTile(c, r); if (a < 0) continue;
+    const d = { c, r, x: c + 0.5, y: r + 0.5, area: a, big: cell(c, r) === 'o', eaten: false, seed: hash(c * 31 + r * 7) };
+    dots.push(d); dotMap.set(r * COLS + c, d);
+    areas[a].n++; areas[a].left++;
+  }
+  pals.list = Array.from({ length: AREA_N }, (_, i) => ({ i, kind: palKind(i), x: PAL_SPOT[i][0] + 0.5, y: PAL_SPOT[i][1] + 0.5, hx: PAL_SPOT[i][0] + 0.5, hy: PAL_SPOT[i][1] + 0.5, state: 'trapped', t: 0, seed: hash(i + 3), path: null, pi: 0, slot: -1 }));
+  pals.joined = 0;
+  mons = HOLES.map((h, i) => ({ id: i, kind: i === 0 ? 'loop' : 'chase', x: h.c + 0.5, y: h.r + 0.5, dir: 3, state: 'wait', outAt: C.MON_START_BARS + i * C.MON_GAP_BARS, hole: h, ri: 0, seed: hash(i * 7 + 1), t: 0, wob: 0, fade: 1, eyes: null, scaredT: 0 }));
+  treePlace();
+  makePlan(); tuneSong();
+  dotSnd.ph = null; dotSnd.mem = { last: '', lastBase: '' }; lanesReset(); drive.lv = 0; drive.at = -99; mus.groove = 0; mus.grooveAt = -9; duckReset();
+  if (song.bloomBus) { try { song.bloomBus.gain.value = 0; song.bloomBus.disconnect(); } catch (e) { /* もう止まっている */ } song.bloomBus = null; }
+  input.want = -1; ptr.down = false; ptr.id = null;
+  Object.assign(bot, { fifo: [], lag: 0, target: null, junc: null, dec: -1 });   // ボット（確かめ用）の覚えも、最初から
+  if (AC && soundMode === 'music' && !mus.timer) musicStart();
+  if (muffle && AC) muffle.frequency.setTargetAtTime(20000, AC.currentTime, 0.05);
+  hideResult();
+}
+
+// ---------------- 木とつぼみ（広場版の25回目の木を、ブロックの大きさに） ----------------
+function treePlace() {   // 幹の先から、クリアに要る4つの大きな枝（先につぼみ）。おまけ（金）のつぼみは、枝の途中からさらに外へのびる小枝の先（クリアが決まってから見える）
+  const H = tree.h, cx = tree.x, n = budN(), cl = budClear(), ne = n - cl, rnd = k => hash(k * 1.3 + 5);
+  Object.assign(tree, { branches: [], branchesX: [], buds: [] });
+  tree.zone = { x0: BLOCK.x0, x1: BLOCK.x1, y0: BLOCK.y0, y1: BLOCK.y1 };
+  const top = [cx, tree.y - H * 0.42], mids = [];
+  tree.branches.push([cx, tree.y, top[0], top[1], H * 0.09]);                                       // 幹
+  for (let i = 0; i < cl; i++) {                                                                     // 大きな枝：幹の先から、つぼみまで（途中で少し曲がる）
+    const u = cl > 1 ? i / (cl - 1) : 0.5, a = Math.PI * (1.1 + 0.8 * u) + (rnd(i) - 0.5) * 0.08;
+    const r = H * (0.4 + 0.1 * Math.sin(u * Math.PI)) * (0.96 + 0.08 * rnd(i + 20));
+    const bx = top[0] + Math.cos(a) * r, by = top[1] + Math.sin(a) * r * 0.9;
+    const mx = top[0] + Math.cos(a) * r * 0.5 + (rnd(i + 40) - 0.5) * H * 0.05, my = top[1] + Math.sin(a) * r * 0.5 - H * 0.04;
+    tree.branches.push([top[0], top[1], mx, my, H * 0.05], [mx, my, bx, by, H * 0.03]);
+    if (rnd(i + 60) < 0.6) { const ta = a + (rnd(i + 70) < 0.5 ? -0.7 : 0.7), tl = H * 0.08; tree.branches.push([mx, my, mx + Math.cos(ta) * tl, my + Math.sin(ta) * tl, H * 0.018]); }   // 小枝
+    mids.push({ a, x: lerp(mx, bx, 0.55), y: lerp(my, by, 0.55) });
+    tree.buds.push({ x: bx, y: by, gold: false });
+  }
+  for (let j = 0; j < ne; j++) {                                                                     // おまけ：まん中の枝の途中から、上へのびる小枝の先
+    const a = -Math.PI / 2 + (rnd(j + 100) - 0.5) * 0.2, base = mids[Math.floor(mids.length / 2) - (j % 2)], r = H * 0.62;
+    const bx = top[0] + Math.cos(a) * r * 0.3 + (j - (ne - 1) / 2) * H * 0.2, by = top[1] + Math.sin(a) * r * 0.75;
+    tree.branchesX.push([base.x, base.y, bx, by, H * 0.02]);
+    tree.buds.push({ x: bx, y: by, gold: true });
+  }
+}
+const mini = { pos: [], box: null };   // 画面のあいた所の、小さな木：つぼみの画面の位置（光の粒の行き先）
+function budEarn(x, y, info = {}) {   // エリアを取り戻した：その場所から、光の粒が小さな木へ。着いた瞬間（次の8分音符）に、つぼみが光って、鈴が鳴る
+  buds.log.push({ t: +song.t.toFixed(2), k: buds.got, ...info });
+  if (buds.got >= budN()) return;
+  const k = buds.got++, now = audioNow();
+  const at = AC && soundMode === 'music' && mus.timer ? T16(gridIdx(now + 0.1, 2)) : now + 0.12;
+  buds.fly.push({ x, y, k, t: 0, T: Math.max(0.1, at - now) });
+  sfxBud(k, at);
+}
+function budsTick(dt) {
+  for (const p of buds.fly) { p.t += dt; if (p.t >= p.T && !p.done) { p.done = true; buds.lit = Math.max(buds.lit, p.k + 1); buds.litAt[p.k] = clock; } }
+  if (!buds.cleared && buds.lit >= budClear()) {   // クリア確定：小さな木がぱっと光り、金の輪が木に広がって、おまけのつぼみが出る
+    buds.cleared = true; buds.clearAt = clock;
+    rings.push({ x: tree.x, y: tree.y - tree.h * 0.5, r0: tree.h * 0.3, grow: tree.h * 0.9, t: 0, life: 0.8, width: 0.12, color: '255,236,150' });
+  }
+  buds.fly = buds.fly.filter(p => !p.done || p.t < p.T + 0.3);
+}
+function sfxBud(k, t) {   // 小さな鈴の音：つぼみが増えるほど1音ずつ高く（その時の和音の音で）。クリア確定で、短い和音を1回だけ
+  if (!AC || !live()) return;
+  const ch = soundMode === 'music' && mus.timer ? chordAt(t) : CH.tonic, pool = chordNotes(ch, 74, 110);
+  const prev = buds.pitch ?? 0, m = k === 0 ? pool[0] : (pool.find(p => p > prev) ?? pool[pool.length - 1]);
+  buds.pitch = m;
+  const b = curBus; curBus = null;
+  try {
+    play('bell', t, m, 1.1, C.BUD_VOL * 0.9); play('glass', t, m + 12, 0.6, C.BUD_VOL * 0.35);
+    if (k + 1 === budClear()) for (const [j, mm] of chordNotes(triad(ch), 72, 90).slice(0, 3).entries()) play('bell', t + 0.04 + j * 0.03, mm, 1.6, C.BUD_VOL * 0.55);
+  } finally { curBus = b; }
+}
+
+// ---------------- ハムスターの動き（パックマン型：行きたい向きを示すだけ） ----------------
+//   先入れ：曲がれない向きも覚えておき、曲がれる所に来たら曲がる。角のアシスト：曲がり角を TURN_LATE だけ過ぎていても曲がる（手前 TURN_EARLY から曲がり始める）
+//   反対向きには、すぐ振り向ける。壁に当たったら、そのマスのまん中で止まる
+const hamSpeed = () => C.HAM_SPEED * (feast() ? 1 : 1 - C.HEAVY_SLOW * Math.min(1, ham.pouch / C.POUCH_FULL));
+function moveHam(dt) {
+  if (!started || songOver || song.part === 'finale' || song.burst) return;
+  if (input.want >= 0) ham.want = input.want;
+  const c = Math.floor(ham.x), r = Math.floor(ham.y), cx = c + 0.5, cy = r + 0.5;
+  if (ham.want >= 0) {
+    if (ham.dir >= 0 && ham.want === (ham.dir + 2) % 4) { ham.dir = ham.want; ham.want = -1; }   // 反対向き：すぐ
+    else if (ham.dir < 0 || ham.want === ham.dir) { if (open(c, r, ham.want)) { ham.dir = ham.want; ham.want = -1; } else if (ham.dir < 0) { ham.face = ham.want; ham.want = -1; } }
+    else {   // 横へ曲がる：いまのマスのまん中の、手前 TURN_EARLY 〜 過ぎて TURN_LATE の間なら
+      const along = ham.dir % 2 ? (cy - ham.y) * (ham.dir === 1 ? 1 : -1) : (cx - ham.x) * (ham.dir === 0 ? 1 : -1);   // まん中まで（進む向きに正）
+      if (open(c, r, ham.want) && along <= C.TURN_EARLY && along >= -C.TURN_LATE) { ham.dir = ham.want; ham.want = -1; ham.turnAt = clock; }
+    }
+  }
+  if (ham.dir < 0) { ham.moving = 0; return; }
+  ham.face = ham.dir; ham.moving = 1;
+  const [dx, dy] = DIRS[ham.dir], s = hamSpeed() * dt;
+  if (dx) {   // 横に進む：縦のずれ（曲がったばかり）をまん中へ寄せる
+    ham.y += clamp(cy - ham.y, -s, s);
+    const ahead = open(c, r, ham.dir), lim = ahead ? Infinity : cx;   // 壁：まん中まで
+    const nx = ham.x + dx * s;
+    if (!ahead && (dx > 0 ? nx >= lim : nx <= lim)) { ham.x = lim; ham.dir = -1; } else ham.x = nx;
+    if (ham.x < 0) ham.x += COLS; else if (ham.x >= COLS) ham.x -= COLS;   // トンネル
+  } else {
+    ham.x += clamp(cx - ham.x, -s, s);
+    const ahead = open(c, r, ham.dir), lim = cy, ny = ham.y + dy * s;
+    if (!ahead && (dy > 0 ? ny >= lim : ny <= lim)) { ham.y = lim; ham.dir = -1; } else ham.y = ny;
+  }
+  if (ham.dir >= 0) ham.step += s;
+}
+// ---------------- 音の粒を食べる ----------------
+const dotSnd = { ph: null, mem: { last: '', lastBase: '' }, turn: {} };   // ph：いまのフレーズ { area, form, j, voice, lastM, at }
+function eatTick() {
+  if (!started || songOver || song.burst || song.part === 'finale') return;
+  const c = wrapC(Math.floor(ham.x)), r = Math.floor(ham.y), d = dotMap.get(r * COLS + c);
+  if (d && !d.eaten && Math.hypot(d.x - ham.x, d.y - ham.y) < 0.5) eatDot(d);
+  for (const sp of spills) if (!sp.got && Math.hypot(sp.x - ham.x, sp.y - ham.y) < 0.5) pickSpill(sp);
+}
+function eatDot(d) {
+  d.eaten = true; dotMap.delete(d.r * COLS + d.c);
+  const a = areas[d.area]; a.left--; a.lx = d.x; a.ly = d.y; ham.lastArea = d.area;
+  ham.pouch += d.big ? 3 : 1; ham.eatT = 0; ham.popT = 0; ham.cheekV += 1.6;
+  for (let k = 0; k < (d.big ? 3 : 1); k++) pushItem(DOT_COL[palKind(d.area)]);
+  squash(ham.face * Math.PI / 2, 0.14);
+  if (feast()) song.chorusEaten++;
+  if (AC) { if (soundMode === 'music' && !mus.timer) musicStart(); poko(0.3); if (d.big) bigNote(d); else dotNote(d, a.left === 0 && budCount()); }
+  if (C.PLAY) driveUp(C.DRIVE_PER_DOT);
+  if (a.left === 0 && budCount()) restoreArea(a, d);
+}
+function pushItem(col) { ham.items.push({ col, seed: rnd(), cheek: ham.items.length % 2 ? 1 : -1 }); if (ham.items.length > 60) ham.items.shift(); }
+function squash(ang, amt) { ham.sqAng = ang; ham.sqV += amt * 22; }
+// 粒の音：そのエリアの仲間の楽器で、次の16分音符に。続けて食べている間は1つのフレーズ（形を変えながら、同じ形を続けない）。間があいたら新しいフレーズ
+//   拍の頭は和音の音、ほかは半音でぶつからない音（広場版の fitNote）。エリアの最後の粒は、落ち着く音（主音）に着地
+function dotNote(d, last) {
+  const now = AC.currentTime, music = soundMode === 'music' && !!mus.timer, i = d.area;
+  let ph = dotSnd.ph;
+  if (!ph || now - ph.at > C.DOT_COMBO_GAP || ph.area !== i || ph.j >= C.PHRASE_N) {
+    const vs = palVoices(i), k = dotSnd.turn[i] = ((dotSnd.turn[i] ?? -1) + 1) % Math.max(1, vs.length);
+    ph = dotSnd.ph = { area: i, form: pickForm(1, dotSnd.mem), j: 0, voice: vs[k] || null, lastM: undefined, at: now };
+  }
+  ph.at = now;
+  const t = slotTime('dot', now, eatGrid(), eatGrid()), ch = music ? chordAt(t) : CH.tonic, v = ph.voice, o = v ? v[2] || {} : {};
+  const [lo, hi] = v ? voiceRange(o) : [62 + S.key, 86 + S.key], pool = scaleNotes(lo, hi), m = C.PHRASE_N, col = hexRGB(DOT_COL[palKind(i)]);
+  const gain = clamp((o.v ?? 0.02) * 3, 0.022, 0.075) * (S.gain ?? 1) * (v ? VOICE_GAIN[v[0]] ?? 1 : 1) * C.DOT_VOL;
+  const sing = (mm, len, k) => { if (v) play(v[0], t, mm, len * sixteenth() * 2, gain * k, o); else hits(S.theme.row, mm, t, k * C.DOT_VOL); const p = pals.list[i]; if (p) p.pulseAt = t; };
+  let mm;
+  if (last) {   // エリアの最後の粒：主音（和音になければ根音）に着地して締める
+    const tonic = ((S.key % 12) + 12) % 12, mLand = ch.pcs.includes(tonic) ? 72 + S.key : rootIn(ch, 67) - (rootIn(ch, 67) > 72 ? 12 : 0), pc = ((mLand % 12) + 12) % 12;
+    mm = pool.find(n => ((n % 12) + 12) % 12 === pc && n >= (lo + hi) / 2 - 6) ?? pool[pool.length >> 1];
+    sing(mm, 2.2, 1.1); hits(S.theme.rowLand, mLand, t, 0.8, ch);
+    dotSnd.ph = null;
+  } else {
+    const j = ph.j++, fm = ph.form, m0 = phraseNote(fm, 1, j, m, pool);
+    mm = fitNote(m0, t, ch, ph.lastM === undefined ? 0 : Math.sign(m0 - ph.lastM)); ph.lastM = m0;
+    sing(mm, j === m - 1 && fm.last ? fm.last : fm.len, j === m - 1 && fm.last ? 1.15 : 1);
+  }
+  myNote(d.x, d.y, t, 'gem', last ? 1 : 0.6, col);
+  LOG.notes.push({ t: +(t - mus.t0).toFixed(4), m: mm, k: idx16(t + 0.002), ch: ch.name, kind: 'dot' });
+}
+function bigNote(d) {   // 大きな実：ベースの「ドン」（根音。その曲のバスドラムとベース）。ベースの層も、しばらく厚くなる
+  const now = AC.currentTime, music = soundMode === 'music' && !!mus.timer, t = slotTime('dot', now, eatGrid(), eatGrid()), ch = music ? chordAt(t) : CH.tonic, K = S.kit, g = (S.gain ?? 1);
+  play(K.kick, t, 0, 0, 0.13 * g); play(K.bass, t, rootIn(ch, 36), beatSec() * 0.9, 0.11 * g);
+  play(S.ev.fruit, t, rootIn(ch, 48), 0.4, 0.06 * g, { w: 0.6 });
+  mus.groove = Math.min(1, mus.groove + C.GROOVE_PER_FRUIT); mus.grooveAt = clock;
+  myNote(d.x, d.y, t, 'big', 1);
+  rings.push({ x: d.x, y: d.y, r0: 0.2, grow: 0.9, t: 0, life: 0.5, width: 0.08, color: '255,200,110' });
+  LOG.notes.push({ t: +(t - mus.t0).toFixed(4), m: rootIn(ch, 36), k: idx16(t + 0.002), ch: ch.name, kind: 'big' });
+}
+// こぼれた物を拾い直す：ほっぺに戻る（小さな「ぽこっ」と、きらっ）
+function pickSpill(sp) {
+  sp.got = true; ham.pouch++; pushItem(sp.col); ham.cheekV += 1.2; ham.popT = 0; LOG.picked++;
+  if (AC && live()) { poko(0.2); const t = slotTime('dot', AC.currentTime, eatGrid(), eatGrid()), ch = soundMode === 'music' && mus.timer ? chordAt(t) : CH.tonic, pool = chordNotes(ch, 79, 96); play('glass', t, pool[Math.floor(rnd() * pool.length)], 0.5, 0.02); }
+}
+// ---------------- エリアを取り戻す ----------------
+//   最後に食べた粒から色の波が広がって、くすみが消える。壁ぞいに花。閉じこめられていた仲間が出てきて、木のそばへ走る。次の小節から、その仲間の楽器が加わる（ジャーン）。つぼみが1つ光る
+function restoreArea(a, d) {
+  a.restored = true; a.at = clock; a.songT = song.t; a.wx = d.x; a.wy = d.y; a.wave = 0;
+  LOG.areas.push({ i: a.i, t: +song.t.toFixed(2), hits: ham.hits });
+  rings.push({ x: d.x, y: d.y, r0: 0.3, grow: 2.2, t: 0, life: 0.8, width: 0.1, color: '255,240,170' });
+  rings.push({ x: d.x, y: d.y, r0: 0.2, grow: 1.4, t: 0.1, life: 0.6, width: 0.05, color: '255,255,255' });
+  sparks.push({ x: d.x, y: d.y, t: 0, life: 0.8, s: 0.45 });
+  const p = pals.list[a.i];
+  palFree(p);
+  budEarn(d.x, d.y, { area: a.i });
+}
+function palFree(p) {   // 泡から、ぴょんと出て、木のそばへ走る（通路の上を）
+  p.state = 'run'; p.t = 0; p.slot = pals.joined; pals.joined++;
+  const from = nearestPath(p.hx, p.hy), to = [START.c, START.r];   // 木のすぐ下（スタート）まで走って、そこから自分の場所へ
+  p.path = [[p.hx, p.hy], ...pathTiles(from[0], from[1], to[0], to[1]).map(([c, r]) => [c + 0.5, r + 0.5]), TREE_SLOT[p.slot]];
+  p.pi = 0; p.px = p.path[0][0]; p.py = p.path[0][1];
+  rings.push({ x: p.x, y: p.y, r0: palR(), grow: 1.6, t: 0, life: 0.7, width: 0.1, color: '255,230,120' });
+  sparks.push({ x: p.x, y: p.y - palR(), t: 0, life: 0.8, s: 0.4 });
+  palPhrase(p);
+}
+function palsTick(dt) {
+  for (const p of pals.list) {
+    p.t += dt;
+    if (p.state === 'run') {   // 道をたどって走る（速い）。着いたら演奏
+      let left = 7.5 * dt;
+      while (left > 0 && p.pi < p.path.length - 1) {
+        const [tx, ty] = p.path[p.pi + 1], d = Math.hypot(tx - p.x, ty - p.y);
+        if (d <= left) { p.x = tx; p.y = ty; p.pi++; left -= d; } else { p.x += (tx - p.x) / d * left; p.y += (ty - p.y) / d * left; left = 0; }
+      }
+      if (p.pi >= p.path.length - 1) { p.state = 'play'; p.t = 0; }
+    } else if (p.state === 'party' || p.state === 'dance' || p.state === 'sit') { const k = 1 - Math.exp(-dt * 3); p.x += (p.px - p.x) * k; p.y += (p.py - p.y) * k; }
+  }
+}
+const palsTo = st => { for (const q of pals.list) if (q.state === 'play' || q.state === 'party' || q.state === 'dance' || q.state === 'sit') { q.state = st; q.t = 0; q.px = q.x; q.py = q.y; } };   // 締め：'dance' 木のまわりで踊る ／ 'sit' 木の下に座る
+// 仲間が加わったときの「ジャーン」（広場版の palFanfare。人数は、取り戻した数）：次の拍の頭。その次の小節の頭から、伴奏に加わる
+function palPhrase(p) {
+  const music = !!(AC && soundMode === 'music' && mus.timer && C.SOUND_VOLUME > 0);
+  if (!music) { p.joinBar = Math.ceil(song.t / barSec() + 0.25 + 1e-6); return; }
+  const kb = gridIdx(AC.currentTime + 0.03, 4), B = Math.ceil((kb + 1) / 16) * 16;
+  p.joinBar = B / 16; p.phraseAt = T16(kb); p.joinAt = T16(B);
+  palFanfare(p, kb);
+}
+const FANFARE_VOL = [0.28, 0.39, 0.5, 0.47, 0.48], FANFARE_DUCK = 0.8;
+function palFanfare(p, kb) {   // 広場版から：その時の和音を、取り戻した仲間全員の楽器でそろえて鳴らす。新しい仲間の楽器で、和音を駆け上がる短いフレーズ。人数が増えるほど厚く
+  const n = pals.joined, fk = FANFARE_VOL[Math.min(4, n - 1)] * mx('fanfare'), t = T16(kb), ch = stepChord(kb), len = barSec(), K = S.kit, g = (S.gain ?? 1) * fk, tri = triad(ch);
+  const b = curBus; curBus = null;
+  try {
+    const mid = chordNotes(tri, 55, 67).slice(0, 3), hi = chordNotes(tri, 72, 84).slice(0, 3);
+    for (const m of mid) play(S.ev.growB, t, m, len, 0.024 * fk * mx('grow'));
+    for (const m of (n >= 2 ? hi : hi.slice(-1))) play(S.ev.unlock, t, m, len, 0.022 * fk * mx('unlock'));
+    if (n >= 3) { play(K.bass, t, rootIn(ch, 36), len * 0.9, 0.09 * g); for (const m of mid) play(S.ev.growB, t, m - 12, len, 0.014 * fk * mx('grow')); }
+    play(K.kick, t, 0, 0, (0.09 + 0.012 * n) * g);
+    if (n >= 4) play(K.crash, t, 0, 1.8, (n >= 5 ? 0.045 : 0.03) * fk);
+    for (const q of pals.list) if (q.state !== 'trapped') for (const pt of [...S.body[q.i], ...S.teeth[q.i]]) bandHit(pt, t, ch, len, (q === p ? 1.3 : 1) * fk);   // 取り戻した仲間全員で
+    const v = palVoices(p.i)[0], o = v ? v[2] || {} : {}, lo = Math.min(v ? voiceRange(o)[0] + 3 : 72, 74), pool = chordNotes(tri, lo, lo + 24);
+    const start = Math.max(0, Math.min(pool.length - 5, (pool.length - 5) >> 1));
+    for (let j = 0; j < 5; j++) {
+      const tj = T16(kb + j * 2), m = pool[Math.min(pool.length - 1, start + j)] ?? (72 + S.key), last = j === 4, vv = (v ? clamp((o.v ?? 0.02) * 3.4, 0.026, 0.08) * (S.gain ?? 1) * (VOICE_GAIN[v[0]] ?? 1) : 0.03 * mx('unlock')) * Math.min(1, fk * 1.6);
+      play(v ? v[0] : S.ev.unlock, tj, m, sixteenth() * (last ? 6 : 2), vv * (last ? 1.15 : 1), o);
+      myNote(p.x, p.y - palR(), tj, j % 2 ? 'gem' : 'fruit', 0.6 + 0.08 * j, hexRGB(PAL_COL[p.kind][0]));
+    }
+    if (n >= 5) chordNotes(tri, 84, 100).forEach((m, j) => play(S.ev.sparkle, t + beatSec() * 2 + j * beatSec() / 8, m, 0.9, 0.014 * fk * mx('sparkle')));
+  } finally { curBus = b; }
+  duckFor(t, len, FANFARE_DUCK);
+}
+function bandHit(pt, t, ch, len, k) {   // 広場版から：刻みの楽器1つで、その時の和音を1回（音の高さのない太鼓などは、1回たたく）
+  const [name, , o = {}] = pt, v = (o.v ?? 0.02) * C.MUSIC_VOLUME * (S.gain ?? 1) * 1.5 * k, ns = pickNotes(o, ch, 0);
+  if (!ns) { play(name, t, 0, sixteenth() * 2, v, o); return; }
+  const [lo, hi] = o.r || [48, 72], ms = o.hz ? ns : chordNotes(triad(ch), lo, Math.max(hi, lo + 12)).slice(0, 3);
+  const list = ms.length ? ms : ns;
+  for (const m of list) play(name, t, m, len, v / Math.sqrt(list.length), { ...o, atk: o.atk !== undefined ? Math.min(o.atk, 0.08) : undefined });
+}
+
+// ---------------- 音を消すもの（2匹） ----------------
+//   曲が始まって2小節は出てこない。穴から、音と一緒にゆっくり出る。テンポに合わせた一定の足取りで通路を進む
+//   1匹目（loop）：決まった道（PATROL）を回る。2匹目（chase）：曲がり角で、ときどき（CHASE_P）ハムスターの方へ曲がる
+//   サビ：こわがって逃げる（遅い）。食べられると目だけになって迷路の外へ逃げ、戻らない。締め：消える
+const monSpeed = m => C.MON_SPEED * (m.state === 'scared' ? C.MON_SCARED : 1) * (Math.floor(m.y) === TUNNEL_ROW && (m.x < 1.5 || m.x > COLS - 1.5) ? C.MON_TUNNEL : 1);
+function monsTick(dt) {
+  if (!song.live) return;
+  const bar = song.t / barSec();
+  for (const m of mons) {
+    m.t += dt; m.wob += dt * (3 + m.seed);
+    if (m.state === 'wait') { if (bar >= m.outAt && !feast() && song.part !== 'build' && song.part !== 'finale') monOut(m); continue; }
+    if (m.state === 'out') {   // 穴から、ゆっくり上へ出てくる
+      const u = clamp(m.t / C.MON_EXIT_SEC, 0, 1); m.x = m.hole.c + 0.5; m.y = m.hole.r + 0.5 - u; m.rise = u;
+      if (u >= 1) { m.state = feast() ? 'scared' : 'roam'; m.dir = m.hole.c < 8 ? 2 : 0; m.y = m.hole.out[1] + 0.5; m.ri = 0; }
+      continue;
+    }
+    if (m.state === 'eyes') {   // 目だけになって、まっすぐ迷路の外へ
+      const [tx, ty] = m.eyes, d = Math.hypot(tx - m.x, ty - m.y), s = 6 * dt;
+      if (d <= s) { m.state = 'gone'; m.t = 0; } else { m.x += (tx - m.x) / d * s; m.y += (ty - m.y) / d * s; }
+      continue;
+    }
+    if (m.state === 'gone' || m.state === 'leave') { if (m.state === 'leave') m.fade = Math.max(0, m.fade - dt / 0.8); continue; }
+    monMove(m, dt);
+  }
+}
+function monOut(m) {
+  m.state = 'out'; m.t = 0;
+  if (AC && live()) {   // 出てくる音：低く、ざらざらと（音楽の刻みに合わせて）
+    const t = AC.currentTime + 0.02, b = curBus; curBus = null;
+    try { noiseSweep(t, C.MON_EXIT_SEC * 0.9, 0.02, 1800, 220, 2); syn(t, 55, C.MON_EXIT_SEC, 0.025, { type: 'triangle', atk: 0.3, flt: 'lowpass', ff: 300 }); } finally { curBus = b; }
+  }
+}
+const fwdX = (from, to, dx) => (((to - from) * dx) % COLS + COLS) % COLS;   // 横に進んで to に着くまでの距離（トンネルの向こうも）
+function monMove(m, dt) {   // 次のマスのまん中まで進み、まん中で次の向きを決める
+  let left = monSpeed(m) * dt;
+  for (let guard = 0; guard < 6 && left > 1e-9; guard++) {
+    const [dx, dy] = DIRS[m.dir];
+    let c = Math.floor(m.x), r = Math.floor(m.y), along = dx ? fwdX(m.x, c + 0.5, dx) : (r + 0.5 - m.y) * dy;   // いまのマスのまん中まで（進む向きに正。過ぎていれば負）
+    if (along > COLS / 2) along -= COLS;
+    if (along < -1e-6 || (m.dc === c && m.dr === r)) { c = wrapC(c + dx); r += dy; along += 1; }   // まん中を過ぎた・もう決めた：次のマスのまん中へ
+    if (left < along - 1e-9) { m.x += dx * left; m.y += dy * left; left = 0; }
+    else { m.x = c + 0.5; m.y = r + 0.5; left -= Math.max(0, along); m.dc = c; m.dr = r; m.dir = monChoose(m, c, r); }   // まん中：次の向きを決める（1マスに1回）
+    if (m.x < 0) m.x += COLS; else if (m.x >= COLS) m.x -= COLS;
+  }
+}
+function monChoose(m, c, r) {
+  const back = (m.dir + 2) % 4, opts = [0, 1, 2, 3].filter(d => open(c, r, d));
+  const fwd = opts.filter(d => d !== back);
+  const cands = fwd.length ? fwd : opts;
+  if (m.kind === 'loop' && m.state === 'roam') {   // 決まった道：道の上の次のマスへ（道から外れていたら、道のいちばん近いマスへ向かう）
+    const i = PATROL.findIndex(([pc, pr]) => pc === c && pr === r);
+    let tc, tr;
+    if (i >= 0) { m.ri = (i + 1) % PATROL.length; [tc, tr] = PATROL[m.ri]; }
+    else { let bd = Infinity; for (const [pc, pr] of PATROL) { const d = stepsTo(c, r, pc, pr); if (d >= 0 && d < bd) { bd = d; tc = pc; tr = pr; } } }
+    const d = towardDir(c, r, tc, tr, cands); if (d >= 0) return d;
+  }
+  const hc = wrapC(Math.floor(ham.x)), hr = Math.floor(ham.y);
+  if (m.state === 'scared') {   // 逃げる：ハムスターから遠くなる向き（ときどき気まま）
+    if (rnd() < 0.25) return cands[Math.floor(rnd() * cands.length)];
+    let best = cands[0], bd = -1;
+    for (const d of cands) { const x = wrapC(c + DIRS[d][0]), y = r + DIRS[d][1], s = stepsTo(x, y, hc, hr); if (s > bd) { bd = s; best = d; } }
+    return best;
+  }
+  if (m.kind === 'chase' && rnd() < C.CHASE_P) { const d = towardDir(c, r, hc, hr, cands); if (d >= 0) return d; }
+  return cands[Math.floor(rnd() * cands.length)];
+}
+function towardDir(c, r, tc, tr, cands) {   // 目標のマスへ近づく向き（候補の中で。同じなら気まま）
+  if (tc === undefined) return -1;
+  let best = [], bd = Infinity;
+  for (const d of cands) { const x = wrapC(c + DIRS[d][0]), y = r + DIRS[d][1], s = stepsTo(x, y, tc, tr); if (s < 0) continue; if (s < bd - 1e-9) { bd = s; best = [d]; } else if (s === bd) best.push(d); }
+  return best.length ? best[Math.floor(rnd() * best.length)] : -1;
+}
+// 近づくと、曲が少しこもる（高い音が少し消える）。近いほど強く
+function muffleTick() {
+  if (!muffle || !AC) return;
+  let near = Infinity;
+  for (const m of mons) if (m.state === 'roam') near = Math.min(near, Math.hypot(m.x - ham.x, m.y - ham.y));
+  const k = clamp((C.MUFFLE_FAR - near) / (C.MUFFLE_FAR - C.MUFFLE_NEAR), 0, 1), f = Math.exp(lerp(Math.log(20000), Math.log(C.MUFFLE_HZ), k));
+  if (Math.abs(f - (muffle.aim || 20000)) > 30) { muffle.aim = f; muffle.frequency.setTargetAtTime(f, AC.currentTime, 0.08); }
+}
+// 当たり：ふつうのときは、こぼれる。サビでは、食べる
+function hitTick() {
+  if (!started || songOver || song.burst || song.part === 'finale') return;
+  for (const m of mons) {
+    if (m.state !== 'roam' && m.state !== 'scared') continue;
+    const dx = Math.min(Math.abs(m.x - ham.x), COLS - Math.abs(m.x - ham.x)), d = Math.hypot(dx, m.y - ham.y);
+    if (d >= C.HIT_R) continue;
+    if (m.state === 'scared') monEaten(m); else if (clock >= ham.safeUntil) hamHit(m);
+  }
+}
+function hamHit(m) {
+  ham.hits++; ham.hitAt = clock; ham.safeUntil = clock + C.HIT_SAFE;
+  LOG.hits.push({ t: +song.t.toFixed(2), pouch: ham.pouch, mon: m.kind });
+  squash(ham.face * Math.PI / 2, 0.4);
+  const n = Math.round(ham.pouch * C.HIT_SPILL);
+  spill(n); LOG.spills += n;
+  if (AC && live()) {   // 「うん」：その時の和音の根音で、拍（次の8分音符）にそろえて。低く鈍い木の音
+    const t = slotTime('bump', AC.currentTime, 2, 2), ch = soundMode === 'music' && mus.timer ? chordAt(t) : CH.tonic, lo = S.ev.bump[0], b = curBus; curBus = null;
+    try { play(lo[0], t, rootIn(ch, lo[1] - 6), 0.1, 0.05 * (lo[2] ?? 1)); noise(t, 0.08, 0.02, 'lowpass', 400); } finally { curBus = b; }
+    duckAt(t);
+  }
+  rings.push({ x: ham.x, y: ham.y, r0: 0.3, grow: 1.2, t: 0, life: 0.5, width: 0.08, color: '120,120,130' });
+}
+function spill(n) {   // ほっぺの中身の一部が、まわりの通路にこぼれる（数秒光っていて、拾い直せる）
+  const c = wrapC(Math.floor(ham.x)), r = Math.floor(ham.y), d = DIST[r * COLS + c], cells = [];
+  if (d) for (let rr = 0; rr < ROWS; rr++) for (let cc = 0; cc < COLS; cc++) { const s = d[rr * COLS + cc]; if (s >= 1 && s <= 3 && cell(cc, rr) !== '=') cells.push([cc, rr, s]); }
+  for (let k = 0; k < n && ham.items.length; k++) {
+    const it = ham.items.splice(Math.floor(rnd() * ham.items.length), 1)[0], at = cells.length ? cells[Math.floor(rnd() * cells.length)] : [c, r, 0];
+    spills.push({ x: at[0] + 0.5 + (rnd() - 0.5) * 0.5, y: at[1] + 0.5 + (rnd() - 0.5) * 0.5, x0: ham.x, y0: ham.y, col: it.col, t: 0, life: C.SPILL_LIFE, got: false, seed: rnd() });
+  }
+  ham.pouch = Math.max(0, ham.pouch - n);
+}
+function spillsTick(dt) { for (const s of spills) s.t += dt; spills = spills.filter(s => !s.got && s.t < s.life); }
+function monEaten(m) {   // サビ：音を消すものを食べた。バンドのキメ「ジャン」とシンバル（その時の和音で）。ほっぺが大きくふくらむ。目だけになって外へ
+  m.state = 'eyes'; m.t = 0; song.monEaten++; LOG.monEat++;
+  const ex = m.x < COLS / 2 ? -1.5 : COLS + 1.5, ey = m.y < ROWS / 2 ? -1.5 : ROWS + 1.5;
+  m.eyes = Math.abs(ex - m.x) < Math.abs(ey - m.y) ? [ex, m.y] : [m.x, ey];
+  ham.pouch += C.MON_EAT_POUCH; for (let k = 0; k < C.MON_EAT_POUCH; k++) pushItem('#d8d8e0');
+  ham.cheekV += 5; ham.popT = 0; squash(ham.face * Math.PI / 2, 0.35);
+  rings.push({ x: m.x, y: m.y, r0: 0.4, grow: 2.4, t: 0, life: 0.6, width: 0.12, color: '255,240,170' });
+  rings.push({ x: m.x, y: m.y, r0: 0.2, grow: 1.5, t: 0.08, life: 0.5, width: 0.06, color: '255,255,255' });
+  sparks.push({ x: m.x, y: m.y, t: 0, life: 0.7, s: 0.6 });
+  if (AC && live()) {
+    const t = slotTime('kime', AC.currentTime, 2, 2), ch = soundMode === 'music' && mus.timer ? chordAt(t) : CH.tonic, K = S.kit, kv = C.SPECIAL_KIME_VOL * 1.3, g = (S.gain ?? 1) * kv, bt = beatSec(), b = curBus; curBus = null;
+    try {
+      for (const p of pals.list) if (p.joinBar !== undefined) for (const pt of [...S.body[p.i], ...S.teeth[p.i]]) bandHit(pt, t, ch, bt * 0.8, 0.55 * kv);
+      for (const mm of chordNotes(triad(ch), 55, 67).slice(0, 3)) play(S.ev.growB, t, mm, bt * 0.8, 0.016 * mx('grow') * kv);
+      play(K.kick, t, 0, 0, 0.11 * g); play(K.bass, t, rootIn(ch, 36), bt * 0.6, 0.07 * g); play(K.crash, t, 0, 1.2, 0.03 * kv);
+      for (const [j, mm] of chordNotes(triad(ch), 76, 96).slice(0, 3).entries()) play('leadPop', t + j * 0.02, mm, 0.3, 0.035 * kv);
+    } finally { curBus = b; }
+    duckFor(t, bt * 0.5, 0.7); myNote(m.x, m.y, t, 'crystal', 1);
+  }
+}
+
+// ---------------- 1曲の流れ：場面の切り替わり ----------------
+//   ▶ を押すと曲が始まる。イントロ → Aメロ → Bメロ → ため → サビ（逆転）→ 締め（自動のため → どばー → 花）→ 結果
+const ptr = { down: false, id: null, sx: 0, sy: 0, x0: 0, y0: 0, moved: false, type: 'mouse' };
+function enterPart(p) {
+  song.part = p; song.times[p] = song.t;
+  if (p === 'chorus') {   // 立場が逆転：音を消すものが食べ物に。ほっぺが重くても遅くならない
+    for (const m of mons) if (m.state === 'roam') { m.state = 'scared'; m.scaredT = clock; m.dir = (m.dir + 2) % 4; }
+    drive.lv = 1; drive.at = audioNow();
+    rings.push({ x: ham.x, y: ham.y, r0: 0.4, grow: 6, t: 0, life: 0.9, width: 0.16, color: '255,230,120' });
+    if (muffle && AC) { muffle.aim = 20000; muffle.frequency.setTargetAtTime(20000, AC.currentTime, 0.1); }
+  }
+  if (p === 'finale') {   // 締め：音を消すものは消える。木の前（巣）へ、ぴょんと飛んでいく（2拍）
+    if (qs.has('force')) { const n = { part: 2, clear: 4, full: 5 }[qs.get('force')]; if (n !== undefined) { buds.got = buds.lit = n; buds.cleared = n >= budClear(); } }   // 確かめ用：結果の3段階を見る
+    for (const m of mons) if (m.state !== 'gone') { m.state = 'leave'; m.t = 0; }
+    ham.dir = -1; ham.want = -1; input.want = -1;
+    song.hop = { t0: clock, T: 2 * beatSec(), x0: ham.x, y0: ham.y, x1: START.c + 0.5, y1: START.r + 0.5, H: 1.2 };
+    if (Math.abs(song.hop.x1 - song.hop.x0) > COLS / 2) song.hop.x0 += song.hop.x0 < COLS / 2 ? COLS : -COLS;   // トンネルの向こうから
+    spills = [];
+  }
+  if (p === 'result') finishSong();
+}
+function songTick(dt) {
+  if (!song.live) return;
+  song.t = musicLive() ? AC.currentTime - mus.t0 : song.t + dt;
+  const p = partAtTime(song.t);
+  const endReady = song.burst && !flyers.length && song.t >= song.endAt;
+  if (p !== song.part && !songOver && (p !== 'result' || !song.burst)) enterPart(p);
+  if (endReady && !songOver) enterPart('result');
+  if (song.part === 'finale' && !song.burst) {
+    chargeTick(dt);
+    if (song.t >= landT()) burst();
+  }
+}
+function startSong() {   // 大きな ▶：音が出て、曲が始まる（ハムスターは、向きを入れるまで待っている）
+  if (started) return;
+  audioInit();
+  started = true; song.live = true; song.t = -0.05;
+  if (AC && soundMode === 'music') { if (!mus.timer) musicStart(); alignMusic(); }
+  time = 0;
+}
+// ---------------- 締め：自動のため → どばー（広場版の26回目【3】） ----------------
+function chargeTick(dt) {
+  if (!chargeLive()) { if (charge.state !== 'off' && song.burst) charge.state = 'done'; return; }
+  const bt = beatSec(), t0 = landT() - C.CHARGE_STEPS * bt;
+  if (charge.state === 'off') { charge.state = 'wait'; charge.log = { startT: +song.t.toFixed(3), steps: [], land: null, burst: null }; }
+  const now = song.t >= t0 - 1e-4 ? Math.min(C.CHARGE_STEPS, Math.floor((song.t - t0) / bt + 1e-6) + 1) : 0;
+  const k = now + 1, at = t0 + now * bt;
+  if (k <= C.CHARGE_STEPS && k > charge.schedK && at - song.t < 0.08) { charge.schedK = k; if (AC && live()) chargeSound(AC.currentTime + Math.max(0, at - song.t), k); }
+  if (now > charge.lv) {
+    charge.lv = now; charge.state = 'auto'; charge.pop = 1; drive.lv = 1; drive.at = audioNow(); ham.cheekV += 2;
+    charge.log.steps.push({ lv: now, songT: +song.t.toFixed(3), audio: AC ? +AC.currentTime.toFixed(3) : null });
+  }
+  charge.pop = Math.max(0, charge.pop - dt / 0.18);
+  ham.shiver = chargeMax() ? 1 : 0;
+}
+function chargeSound(t, lv) {   // 広場版から：1段ごとに上がる「シューッ」・小太鼓・和音を上がる音
+  const bt = beatSec(), b = curBus, u = lv * 4 / C.CHARGE_STEPS; curBus = null;
+  try {
+    const ch = soundMode === 'music' && mus.timer ? chordAt(t) : CH.tonic, tones = chordNotes(triad(ch), 64, 100);
+    noiseSweep(t, bt * 0.6, 0.016 + 0.006 * u, 500 * Math.pow(1.7, u - 1), 1400 * Math.pow(1.7, u));
+    snare(t, 0.022 + 0.01 * u);
+    play(S.ev.unlock, t, tones[Math.min(tones.length - 1, lv)] ?? 84, 0.45, (0.016 + 0.004 * u) * mx('unlock'));
+    if (lv >= C.CHARGE_STEPS) play(S.kit.kick, t, 0, 0, 0.08 * (S.gain ?? 1));
+  } finally { curBus = b; }
+}
+function burst() {   // 小節の頭：頬袋の中身を全部、木へ噴き出す。つぼみが花になる（bloomPlan）
+  const clv = charge.lv, pull = 0.35 + 0.65 * clv / C.CHARGE_STEPS;
+  if (charge.log) charge.log.burst = { songT: +song.t.toFixed(3), landT: +landT().toFixed(3), lv: clv };
+  charge.state = 'done';
+  if (!musicLive() && AC && live()) burstHit(AC.currentTime);
+  ham.shiver = 0; song.burst = true; song.burstN = ham.pouch;
+  for (const q of pals.list) if (q.state === 'play') { q.state = 'party'; q.t = 0; q.px = q.x; q.py = q.y; }
+  const items = ham.items.splice(0), n = Math.max(items.length, Math.min(ham.pouch, 160));
+  ham.pouch = 0;
+  const B = bloomPlan();
+  for (let i = 0; i < n; i++) {   // 宝は木へ飛んで、枝のあたりで吸いこまれる。start：飛び出す時刻（曲の時計）
+    const it = items[i % Math.max(1, items.length)] || { col: '#ffd27a', seed: rnd() }, a = rnd() * TAU, bd = tree.buds[i % tree.buds.length], u = i / Math.max(1, n), late = u * u * u, k = 0.3 + 0.65 * rnd();
+    const tx = lerp(tree.x, bd.x, k) + (rnd() - 0.5) * tree.h * 0.1, ty = lerp(tree.y - tree.h * 0.42, bd.y, k) + (rnd() - 0.5) * tree.h * 0.1;
+    flyers.push({ col: it.col, seed: it.seed, w: 0.16 + 0.08 * rnd(), x0: ham.x + Math.cos(a) * 0.15, y0: ham.y - 0.1 + Math.sin(a) * 0.15, tx, ty, start: song.t + u * 0.55, t: 0, T: 0.55 + rnd() * 0.4 + 0.5 * late, H: 1.4 + rnd() * 2.2 + 1.5 * late, show: i < (lowFx ? 80 : 160) || u > 0.92 });
+  }
+  song.burstAt = song.t; song.calmFrom = Infinity; song.finalAt = B.end; song.endAt = B.end + C.END_AFTER_BLOOM;
+  bloomSounds(B);
+  shake = Math.max(shake, C.SHAKE_BURST + (C.CHARGE_SHAKE - C.SHAKE_BURST) * clv / C.CHARGE_STEPS);
+  squash(0, 0.5); ham.relief = 3; ham.cheekV = -2;
+  rings.push({ x: ham.x, y: ham.y, r0: 0.4, grow: 4 * (1 + 0.6 * pull), t: 0, life: 0.8, width: 0.2, color: '255,240,160' });
+  rings.push({ x: ham.x, y: ham.y, r0: 0.5, grow: 6.5 * pull, t: 0.05, life: 0.9, width: 0.12, color: '255,210,110' });
+  rings.push({ x: ham.x, y: ham.y, r0: 0.2, grow: 2.5, t: 0.08, life: 0.6, width: 0.1, color: '255,255,255' });
+}
+function burstHit(t) {   // 噴き出す瞬間：締めの「ジャン」を属和音（V）で ＋「ぽんっ」
+  const dom = CH.fin.theme[CH.fin.theme.length - 1];
+  for (const pt of S.finale.hit) playPart(pt, 0, t, 1, dom);
+  const b = curBus; curBus = null; popSound(t); curBus = b;
+}
+// ---------------- 締めの花（広場版の25・26回目。つぼみ5つに合わせた） ----------------
+//   テーマ（ソ｜ミ ソ ラー ソ ミ レー｜ド）を、つぼみ1つにつき2音ずつ：1つ目 ソ ミ、2つ目 ソ ラ、3つ目 ソ ミ、4つ目 レ ド（ド＝主音。クリアで主音に着く）
+//   クリア：主音の花は小節の頭。その前の1小節は属和音（V）。主音で、バンド全員の「ジャーン」。おまけ（5つ目・金）は、主音と同時にきらきら
+//   届かないとき（4つ未満）：咲いた分だけ鳴って、終わりきらない（主音に戻らない）。満開：そのあと仲間全員で2小節、最後の「ジャーン」
+const BLOOM_OFF = [0, 2, 4, 6, 10, 12, 14, 18];   // テーマの8音の、1音目からの16分音符の数（最後は主音）
+const BLOOM_BUD = [[0, 1], [2, 3], [4, 5], [6, 7]];   // つぼみごとの音の番号
+function bloomPlan() {
+  const b = Math.min(buds.got, budN()), cl = budClear(), n = budN(), level = b >= n ? 'full' : b >= cl ? 'clear' : 'part';
+  const bt = beatSec(), bar = barSec(), sx = sixteenth(), early = landT() + Math.ceil(1.9 / bt - 1e-6) * bt;   // 宝が木に吸いこまれてから（拍の頭）
+  const T = THEME_N, th = CH.fin.theme, dom = th[th.length - 1], ext = chordNotes(triad(CH.fin.land), T[T.length - 1] + 1, T[T.length - 1] + 30);
+  let start = early, tonicAt = null;
+  if (level !== 'part') { tonicAt = Math.ceil((early + BLOOM_OFF[7] * sx) / bar - 1e-6) * bar; start = tonicAt - BLOOM_OFF[7] * sx; }   // 主音の花が小節の頭に来るように、逆算
+  const chordOf = j => (j === 7 ? CH.fin.land : BLOOM_OFF[j] >= 2 && level !== 'part' ? dom : th[j < 4 ? 0 : 1]);   // 主音の前の1小節は V（少し：前半 IV、後半 V）
+  const list = tree.buds.map((bd, i) => {
+    if (i >= b) return { i, kind: 'dark', open: 0 };
+    if (i >= cl) return { i, at: tonicAt, open: 0, kind: 'extra', m: ext[Math.min(ext.length - 1, i - cl)], ch: CH.fin.land, notes: [] };
+    const notes = BLOOM_BUD[i].map(j => ({ j, m: T[j], at: start + BLOOM_OFF[j] * sx, ch: chordOf(j), tonic: j === 7 }));
+    const openAt = i === cl - 1 && level !== 'part' ? tonicAt : notes[0].at;   // 4つ目は、主音（ド）で開く
+    return { i, at: openAt, open: 0, kind: i === cl - 1 && level !== 'part' ? 'tonic' : 'theme', notes, ch: notes[0].ch };
+  });
+  const on = list.filter(f => f.notes && f.notes.length), lastNote = on.length ? on[on.length - 1].notes[on[on.length - 1].notes.length - 1].at : start - bt;
+  let end = (level === 'part' ? lastNote : tonicAt) + 2 * bt, reprise = null;
+  if (level === 'clear') end = tonicAt + 2 * bar;
+  if (level === 'full') { reprise = { at: tonicAt + bar, bars: 2, final: tonicAt + 3 * bar }; end = reprise.final + 2 * bar; }
+  song.bloom = { level, b, cl, n, start, lastAt: level === 'part' ? lastNote : tonicAt, tonicAt, reprise, end, list, wave: 0, green: 0, petals: [], sat: false, danced: false };
+  return song.bloom;
+}
+function bigJaan(t, len) {   // バンド全員で「ジャーン」：テーマの楽器の着地・キック・シンバル・低いベースの根音・和音・取り戻した仲間の楽器（長くのばす）
+  const K = S.kit, g = S.gain ?? 1, ch = CH.fin.land, root = rootIn(ch, 36);
+  hits(S.theme.land, 72 + S.key, t, 1, ch, 0, true);
+  play(K.kick, t, 0, 0, 0.15 * g); play(K.crash, t, 0, len, 0.05);
+  play(K.bass, t, root, len * 0.8, 0.09 * g); syn(t, hz(root - 12), len, 0.03, { atk: 0.02 });
+  for (const m of chordNotes(triad(ch), 55, 72)) play(S.ev.growB, t, m, len, 0.016 * mx('grow'));
+  for (const p of pals.list) if (p.joinBar !== undefined) for (const pt of [...S.body[p.i], ...S.teeth[p.i]]) bandHit(pt, t, ch, len * 0.6, 0.6);
+}
+function bloomSounds(B) {   // 花の音を、まとめて予約する（途中でやめたら、bloomBus を止める）
+  if (!AC || !live()) return;
+  const music = musicLive(), at = st => music ? mus.t0 + st : AC.currentTime + Math.max(0.02, st - song.t), bt = beatSec();
+  const bus = AC.createGain(); bus.gain.value = 1; bus.connect(musicBus || sfxBus); song.bloomBus = bus;
+  const b0 = curBus; curBus = bus;
+  try {
+    const notes = [];
+    for (const f of B.list) if (f.notes) for (const nt of f.notes) notes.push({ ...nt, bud: f });
+    notes.sort((a, b) => a.at - b.at);
+    const pad = (ch, t, len) => {   // 花の下の、やわらかい和音と低い根音
+      for (const m of chordNotes(triad(ch), 52, 71)) syn(t, hz(m), len, 0.007 * C.MUSIC_VOLUME, { type: 'triangle', atk: 0.06, hold: len * 0.5, flt: 'lowpass', ff: 1500 });
+      syn(t, hz(rootIn(ch, 36)), len, 0.022 * C.MUSIC_VOLUME, { atk: 0.04 });
+    };
+    let g0 = 0;
+    notes.forEach((nt, j) => {
+      const t = at(nt.at), nx = notes[j + 1], first = nt === nt.bud.notes[0];
+      hits(S.theme.lead, nt.m, t, 1, nt.ch, bt * (nt.tonic ? 3.5 : 0.95), true);                    // テーマの楽器で、その音（主音は長く）
+      play('bell', t, nt.m + 12, nt.tonic ? 3 : first ? 1.4 : 0.9, C.BUD_VOL * (first || nt.tonic ? 0.9 : 0.5));   // 花が、鈴のように（つぼみが開く音は大きめ）
+      if (nt.tonic) { bigJaan(t, 2 * barSec()); return; }
+      if (!nx || nx.ch !== nt.ch || nx.tonic) { const len = (nx ? nx.at : nt.at + 2 * bt) - notes[g0].at + (nx ? 0.05 : 0); pad(nt.ch, at(notes[g0].at), len); g0 = j + 1; }   // 同じ和音のまとまりごとに
+    });
+    let ex = 0;
+    for (const f of B.list) if (f.kind === 'extra') {   // おまけの花：主音と同時に、きらきらを重ねる
+      const tt = at(f.at) + 0.03 * ++ex;
+      play('bell', tt, f.m + 12, 2.2, C.BUD_VOL * 0.7); play('glass', tt, f.m + 24, 1.2, C.BUD_VOL * 0.3);
+      if (S.ev.sparkle) play(S.ev.sparkle, tt + 0.02, f.m + 12, 1.4, 0.014 * mx('sparkle'));
+    }
+    if (B.tonicAt !== null) for (const pt of S.finale.fill) for (let j = 0; j < 16; j++) playPart(pt, j, at(B.tonicAt - barSec() + off16(j)), 1, CH.fin.theme[CH.fin.theme.length - 1]);   // 属和音の小節の終わりに、ドラムのつなぎ
+    if (B.reprise) {   // 満開：仲間全員で、サビの和音の上でもう一度2小節
+      const R = B.reprise, k0 = P('chorus').from * 16, joined = i => pals.list[i] && pals.list[i].joinBar !== undefined, parts = [...S.base, ...S.chorus];
+      S.body.forEach((l, i) => { if (joined(i)) parts.push(...l); }); S.teeth.forEach((l, i) => { if (joined(i)) parts.push(...l); });
+      for (let j = 0; j < 16 * R.bars; j++) {
+        const t = at(R.at + off16(j)), ch = stepChord(k0 + j);
+        for (const pt of parts) { const o = pt[2] || {}; if ((o.in && !o.in.includes('c')) || o.last || o.from) continue; playPart(pt, j, t, 1, ch); }
+      }
+      play(S.kit.crash, at(R.at), 0, 1.8, 0.05); play(S.kit.kick, at(R.at), 0, 0, 0.14);
+      bigJaan(at(R.final), 2 * barSec());
+    }
+  } finally { curBus = b0; }
+}
+function bloomTick(dt) {   // 花が開く・色が戻る・仲間・花びら
+  const B = song.bloom; if (!B) return;
+  for (const f of B.list) {
+    if (f.at === undefined) continue;
+    const was = f.open; f.open = clamp((song.t - f.at) / 0.3, 0, 1);
+    if (was === 0 && f.open > 0) {
+      const bd = tree.buds[f.i], big = f.kind === 'tonic';
+      rings.push({ x: bd.x, y: bd.y, r0: 0.08, grow: big ? 2 : 0.7, t: 0, life: big ? 0.9 : 0.5, width: big ? 0.1 : 0.05, color: big ? '255,230,150' : '255,215,235' });
+      sparks.push({ x: bd.x, y: bd.y, t: 0, life: 0.5, s: big ? 0.3 : 0.18 });
+    }
+  }
+  if (B.tonicAt !== null && song.t >= B.tonicAt) {   // クリア：木から色の波が迷路全体に広がり、くすみが消える。仲間が木のまわりで踊る
+    B.wave = Math.min(40, (song.t - B.tonicAt) * 9); B.green = clamp((song.t - B.tonicAt) / 1.2, 0, 1);
+    if (!B.danced) { B.danced = true; palsTo('dance'); }
+  }
+  if (B.level === 'part' && !B.sat && song.t >= B.lastAt + beatSec()) { B.sat = true; palsTo('sit'); }
+  if (B.reprise && song.t >= B.reprise.at && song.t < B.reprise.at + 2 * B.reprise.bars * barSec() && !lowFx) {
+    for (let k = 0; k < (dt * 30 | 0) + (rnd() < (dt * 30) % 1 ? 1 : 0); k++)
+      B.petals.push({ x: tree.x + (rnd() - 0.5) * 16, y: tree.y - tree.h * (1.4 + rnd() * 1.2), vx: (rnd() - 0.5) * 0.6, vy: 0.8 + rnd() * 0.8, a: rnd() * TAU, va: (rnd() - 0.5) * 4, t: 0, life: 7 + rnd() * 3 });
+  }
+  for (const p of B.petals) { p.t += dt; p.x += (p.vx + Math.sin(p.t * 2 + p.a) * 0.4) * dt; p.y += p.vy * dt; p.a += p.va * dt; }
+  B.petals = B.petals.filter(p => p.t < p.life && p.y < ROWS + 1);
+}
+function flyersTick() {   // 噴き出した宝：木へ（曲の時計で）
+  for (const p of flyers) { p.t = song.t - p.start; if (p.t >= p.T) p.done = true; }
+  if (flyers.length) flyers = flyers.filter(p => !p.done);
+}
+// ---------------- 結果（3段階）：木が主役。ボタンは「もう一回」だけ ----------------
+const LV_RANK = { part: 1, clear: 2, full: 3 };
+function finishSong() {
+  songOver = true; ham.shiver = 0; flyers = [];
+  const lv = song.bloom ? song.bloom.level : 'part';
+  song.result = { lv, buds: buds.got, hits: ham.hits, monEaten: song.monEaten, pouch: song.burstN };
+  showResult();
+}
+function showResult() { const el = $id('result'); if (el) el.hidden = false; }
+function hideResult() { const el = $id('result'); if (el) el.hidden = true; }
+const freshResume = () => performance.now() - resumedAt < 500;   // 一時停止から戻したクリックでは、ボタンを押さない
+function again() { if (!songOver || freshResume()) return; reset(); }
+// ---------------- 一時停止：Esc（スマホは隅のボタン）。ほかの画面に切り替えたときも止まる ----------------
+let resumedAt = -1e9, menuOpen = false;
+function pauseGame() {
+  if (paused || !C.PAUSE_ON_BLUR) return;
+  paused = true; input.want = -1; ptr.down = false; ptr.id = null;
+  if (AC && AC.state === 'running') AC.suspend().catch(() => {});
+}
+function resumeGame() {
+  if (!paused || menuOpen) return;
+  paused = false; resumedAt = performance.now();
+  if (AC) AC.resume().catch(() => {});
+}
+function openPause() {
+  if (menuOpen || songOver || !started) return;
+  menuOpen = true;
+  if (!paused) { paused = true; input.want = -1; ptr.down = false; ptr.id = null; audioHush(); }
+  $id('pause').hidden = false;
+}
+function closePause() {
+  if (!menuOpen) return;
+  menuOpen = false; $id('pause').hidden = true;
+  paused = false; resumedAt = performance.now(); audioWake();
+}
+function pauseDo(a) { if (a === 'go') return closePause(); closePause(); reset(); }
+
+// ---- 仲間の見た目（広場版から。sad：泡の中でしょんぼり）
+// ---- バンドの仲間の見た目 ----
+//   リス・小鳥・カエル・モグラ・ネズミ。sil：まだ会っていない（影だけ）。wave：手をふる角度。happy：にっこり（目を閉じて笑う）
+const PAL_COL = { squirrel: ['#c9803e', '#f3d9b0', '#a8612a'], bird: ['#ffd23f', '#fff1a8', '#f0a91f'], frog: ['#6cc04a', '#c9ec9a', '#4f9a34'], mole: ['#6b5a52', '#9a8478', '#4d3f39'], mouse: ['#aeb0bd', '#e2e3ea', '#8d8f9c'] };
+function drawPal(kind, x, y, r, o = {}) {
+  const [c0, c1, c2] = PAL_COL[kind] || PAL_COL.mouse, sil = !!o.sil, S0 = sil ? 'rgba(15,15,20,0.62)' : null;
+  const fill = c => { ctx.fillStyle = S0 || c; }, line = Math.max(0.02, r * 0.09);   // 迷路版：単位はマス
+  const ell = (ex, ey, rx, ry, rot = 0) => { ctx.beginPath(); ctx.ellipse(x + ex * r, y + ey * r, rx * r, ry * r, rot, 0, TAU); ctx.fill(); };
+  ctx.lineWidth = line; ctx.strokeStyle = sil ? 'rgba(0,0,0,0)' : 'rgba(40,25,15,0.75)';
+  // 体の後ろ（しっぽ・耳）
+  if (kind === 'squirrel') { fill(c2); ell(-0.78, -0.35, 0.5, 0.85, -0.35); fill(c0); ell(-0.72, -0.42, 0.34, 0.66, -0.35); fill(c0); ell(-0.42, -0.86, 0.17, 0.22); ell(0.42, -0.86, 0.17, 0.22); }
+  if (kind === 'mouse') { fill(c0); ell(-0.56, -0.74, 0.38, 0.38); ell(0.56, -0.74, 0.38, 0.38); if (!sil) { fill('#f4a3b4'); ell(-0.56, -0.74, 0.23, 0.23); ell(0.56, -0.74, 0.23, 0.23); }
+    if (!sil) { ctx.strokeStyle = c2; ctx.lineWidth = line * 1.3; ctx.beginPath(); ctx.moveTo(x + 0.75 * r, y + 0.55 * r); ctx.quadraticCurveTo(x + 1.35 * r, y + 0.5 * r, x + 1.15 * r, y - 0.05 * r); ctx.stroke(); ctx.lineWidth = line; ctx.strokeStyle = 'rgba(40,25,15,0.75)'; } }
+  if (kind === 'bird') { fill(c2); ell(-0.12, -0.98, 0.1, 0.22, -0.4); ell(0.08, -1.0, 0.1, 0.24, 0.3); }
+  if (kind === 'frog') { fill(c0); ell(-0.42, -0.62, 0.3, 0.3); ell(0.42, -0.62, 0.3, 0.3); }
+  // 体
+  fill(c0); ctx.beginPath(); ctx.ellipse(x, y, r * (kind === 'frog' ? 1.08 : 0.95), r * (kind === 'frog' ? 0.82 : 0.92), 0, 0, TAU); ctx.fill(); if (!sil) ctx.stroke();
+  if (sil) return;
+  fill(c1); ell(0, 0.3, kind === 'frog' ? 0.62 : 0.5, 0.45);                                  // おなか
+  // 手（待っている間は、手をふる）
+  fill(c2); const wa = o.wave || 0; ell(0.78 + 0.12 * Math.cos(wa), 0.05 - 0.45 * Math.max(0, Math.sin(wa + 1)), 0.18, 0.24, wa); ell(-0.78, 0.25, 0.17, 0.22);
+  if (kind === 'mole') { fill('#f5d6b0'); ell(-0.86, 0.32, 0.16, 0.12); ell(0.88, 0.3, 0.16, 0.12); }
+  // 顔
+  const ey = kind === 'frog' ? -0.62 : -0.2, ex = kind === 'frog' ? 0.42 : 0.32;
+  if (kind === 'frog') { fill('#ffffff'); ell(-ex, ey, 0.2, 0.2); ell(ex, ey, 0.2, 0.2); }
+  ctx.fillStyle = '#1e1a18'; ctx.strokeStyle = '#1e1a18';
+  if (o.sad) { const er = 0.08; ell(-ex, ey + 0.06, er, er); ell(ex, ey + 0.06, er, er); ctx.lineWidth = line; for (const s of [-1, 1]) { ctx.beginPath(); ctx.moveTo(x + s * (ex - 0.14) * r, y + (ey - 0.22) * r); ctx.lineTo(x + s * (ex + 0.14) * r, y + (ey - 0.1) * r); ctx.stroke(); } }
+  else if (o.happy) { ctx.lineWidth = line * 1.1; for (const s of [-1, 1]) { ctx.beginPath(); ctx.arc(x + s * ex * r, y + (ey + 0.04) * r, r * 0.11, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke(); } }
+  else { const er = kind === 'mole' ? 0.06 : 0.1; ell(-ex, ey, er, er); ell(ex, ey, er, er); if (kind !== 'mole') { ctx.fillStyle = '#fff'; ell(-ex + 0.03, ey - 0.04, er * 0.35, er * 0.35); ell(ex + 0.03, ey - 0.04, er * 0.35, er * 0.35); } }
+  if (kind === 'bird') { fill('#ff8a2a'); ctx.beginPath(); ctx.moveTo(x - 0.13 * r, y - 0.02 * r); ctx.lineTo(x + 0.13 * r, y - 0.02 * r); ctx.lineTo(x, y + 0.2 * r); ctx.closePath(); ctx.fill(); }
+  else if (kind === 'mole') { fill('#ff9aa8'); ell(0, 0.02, 0.26, 0.18); }
+  else if (kind === 'frog') { ctx.strokeStyle = '#2f5d20'; ctx.lineWidth = line; ctx.beginPath(); ctx.arc(x, y - 0.25 * r, r * 0.42, Math.PI * 0.2, Math.PI * 0.8); ctx.stroke(); }
+  else { fill(kind === 'mouse' ? '#f08aa0' : '#5a3418'); ell(0, -0.02, 0.09, 0.07); }
+  if (kind !== 'frog') { ctx.fillStyle = 'rgba(255,120,140,0.45)'; ell(-0.5, 0.05, 0.14, 0.09); ell(0.5, 0.05, 0.14, 0.09); }   // ほっぺ
+}
+
+// ============================================================
+//  見た目：画面の大きさ、迷路の絵（前もって描いておく）、粒、木、仲間、音を消すもの、ハムスター、小さな木、曲の進み具合
+// ============================================================
+const cv = $id('c');
+let ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1, T = 30, OX = 0, OY = 0, portrait = false, layers = null, areaPaths = [], dotCanvas = null;
+const view = { VS: 30, ox: 0, oy: 0, z: 1 };   // 1マスの大きさ（px）と、迷路の原点（画面の px）。音符の光（広場版の drawNoteFx）も使う
+const compactUI = () => portrait || H < 560;
+function layout() {
+  W = innerWidth; H = innerHeight; DPR = Math.min(lowFx ? 1.5 : 2, window.devicePixelRatio || 1);
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR); cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  portrait = H > W * 1.05;
+  const top = portrait ? 76 : 30, bot = portrait ? 96 : 14, side = portrait ? 6 : Math.max(14, W * 0.16);
+  T = Math.max(8, Math.floor(Math.min((W - side * 2) / COLS, (H - top - bot) / ROWS)));
+  OX = Math.round((W - COLS * T) / 2); OY = Math.round(top + (H - top - bot - ROWS * T) / 2);
+  layers = { color: paintMaze(false), dull: paintMaze(true) };
+  areaPaths = Array.from({ length: AREA_N }, (_, i) => regionPath(i));
+}
+const rgbOfHex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+function dullHex(hex, k) { const [r, g, b] = rgbOfHex(hex), l = 0.3 * r + 0.59 * g + 0.11 * b, f = v => Math.round(lerp(v, l, k) * (1 - 0.1 * k)); return `rgb(${f(r)},${f(g)},${f(b)})`; }
+function paintMaze(dull) {   // 地面と生け垣の絵（色あり／くすんだ）。くすんだ世界：灰色に寄せる（広場版の25回目と同じ考え方）
+  const cw = Math.ceil(COLS * T * DPR), chh = Math.ceil(ROWS * T * DPR), o = document.createElement('canvas');
+  o.width = cw; o.height = chh;
+  const g = o.getContext('2d'), K = dull ? 0.8 : 0, col = h => (dull ? dullHex(h, K) : h);
+  g.scale(T * DPR, T * DPR);
+  // 地面：通路はエリアの色（模様も少しずつ違う）。木のブロックは土の広場、トンネルは暗い道
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    const chr = cell(c, r);
+    if (chr === '#') continue;
+    const a = REGION[r][c];
+    g.fillStyle = col(chr === '=' ? '#9a8a6a' : chr === 'T' || chr === 'H' ? '#d8c39a' : chr === 'S' ? AREA_GROUND[0] : AREA_GROUND[a] || '#e6d8b0');
+    g.fillRect(c - 0.01, r - 0.01, 1.02, 1.02);
+    if (a >= 0 && chr !== 'T') {   // エリアごとの地面の模様：0 なし・1 小さな点・2 短い草・3 小石・4 小さな十字
+      const u = hash(c * 13 + r * 17), v = hash(c * 7 + r * 29), px = c + 0.25 + 0.5 * u, py = r + 0.25 + 0.5 * v;
+      g.fillStyle = g.strokeStyle = dull ? 'rgba(60,60,60,0.16)' : 'rgba(90,70,40,0.16)'; g.lineWidth = 0.04;
+      if (a === 1) { g.beginPath(); g.arc(px, py, 0.06, 0, TAU); g.fill(); }
+      else if (a === 2) { g.beginPath(); g.moveTo(px, py + 0.12); g.lineTo(px - 0.05, py - 0.1); g.moveTo(px, py + 0.12); g.lineTo(px + 0.07, py - 0.08); g.stroke(); }
+      else if (a === 3) { g.beginPath(); g.ellipse(px, py, 0.1, 0.06, u * 3, 0, TAU); g.fill(); }
+      else if (a === 4) { g.beginPath(); g.moveTo(px - 0.08, py); g.lineTo(px + 0.08, py); g.moveTo(px, py - 0.08); g.lineTo(px, py + 0.08); g.stroke(); }
+    }
+  }
+  // 木のブロック：土の広場（少し暗いふちと、根の広がり）
+  g.fillStyle = dull ? 'rgba(0,0,0,0.08)' : 'rgba(90,60,30,0.1)'; g.beginPath(); g.roundRect(BLOCK.x0 + 0.08, BLOCK.y0 + 0.08, BLOCK.x1 - BLOCK.x0 - 0.16, BLOCK.y1 - BLOCK.y0 - 0.16, 0.5); g.fill();
+  // 生け垣：ふち（暗い）→ 葉（明るい）→ 葉のかたまり → 上のつや
+  const hedge = (inset, fill) => {
+    g.fillStyle = fill;
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+      if (cell(c, r) !== '#') continue;
+      const wl = c > 0 && cell(c - 1, r) === '#', wr = c < COLS - 1 && cell(c + 1, r) === '#', wu = cell(c, r - 1) === '#', wd = cell(c, r + 1) === '#';
+      const x0 = wl ? c : c + inset, y0 = wu ? r : r + inset, x1 = wr ? c + 1 : c + 1 - inset, y1 = wd ? r + 1 : r + 1 - inset, rr = 0.34;
+      g.beginPath(); g.roundRect(x0, y0, x1 - x0, y1 - y0, [!wl && !wu ? rr : 0, !wr && !wu ? rr : 0, !wr && !wd ? rr : 0, !wl && !wd ? rr : 0]); g.fill();
+    }
+  };
+  hedge(0.05, col('#35602c'));
+  hedge(0.12, col('#5a9645'));
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    if (cell(c, r) !== '#') continue;
+    for (let k = 0; k < 4; k++) {
+      const u = hash(c * 91 + r * 37 + k * 11), v = hash(c * 17 + r * 53 + k * 29), x = c + 0.2 + 0.6 * u, y = r + 0.2 + 0.6 * v;
+      g.fillStyle = col(k % 2 ? '#4a8337' : '#75ae56'); g.beginPath(); g.arc(x, y, 0.11 + 0.06 * hash(k + c + r * 5), 0, TAU); g.fill();
+    }
+    if (cell(c, r - 1) !== '#') { g.fillStyle = dull ? 'rgba(255,255,255,0.1)' : 'rgba(220,255,180,0.28)'; g.fillRect(c + 0.18, r + 0.14, 0.64, 0.07); }   // 上のつや
+  }
+  // 音を消すものの穴：ブロックの上の角に、暗い丸い穴
+  for (const h of HOLES) { g.fillStyle = '#1d1a20'; g.beginPath(); g.ellipse(h.c + 0.5, h.r + 0.5, 0.36, 0.28, 0, 0, TAU); g.fill(); g.strokeStyle = col('#6b5a3a'); g.lineWidth = 0.07; g.stroke(); }
+  // 巣：スタートに、わらの輪
+  g.strokeStyle = col('#c79a52'); g.lineWidth = 0.08;
+  for (let k = 0; k < 7; k++) { const a = k / 7 * TAU; g.beginPath(); g.ellipse(START.c + 0.5, START.r + 0.6, 0.4, 0.17, a * 0.05, a, a + 1.2); g.stroke(); }
+  return o;
+}
+function regionPath(i) {   // エリア i の色の範囲（壁も含む）
+  const p = new Path2D();
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (REGION[r][c] === i) p.rect(c - 0.01, r - 0.01, 1.02, 1.02);
+  return p;
+}
+// 色が戻ったエリアの、壁ぞいの花（前もって場所を決めておく）
+const FLOWERS = (() => {
+  const out = [];
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    if (cell(c, r) !== '#') continue;
+    for (const [dx, dy] of DIRS) {
+      const a = areaOfTile(c + dx, r + dy);
+      if (a < 0 || hash(c * 7 + r * 13 + dx * 3 + dy * 5) > 0.55) continue;
+      const j = hash(c * 3 + r * 11 + dx + dy * 2) - 0.5;
+      out.push({ area: a, x: c + 0.5 + dx * 0.36 + (dy ? j * 0.5 : 0), y: r + 0.5 + dy * 0.36 + (dx ? j * 0.5 : 0), k: Math.floor(hash(c + r * 19) * 4), s: 0.1 + 0.05 * hash(c * 5 + r), d: hash(c * 2 + r * 3) });
+    }
+  }
+  return out;
+})();
+const FLOWER_COL = ['#ffb7cf', '#fff1a8', '#ffffff', '#c9b4ff'];
+function drawWallFlowers() {
+  for (const f of FLOWERS) {
+    const a = areas[f.area];
+    let open = a.restored ? clamp((clock - a.at - 0.3 - f.d * 0.8) / 0.5, 0, 1) : 0;
+    if (!open && song.bloom && song.bloom.wave > 0) open = clamp((song.bloom.wave - Math.hypot(f.x - tree.x, f.y - tree.y + tree.h * 0.5)) / 2 - f.d * 0.4, 0, 1);
+    if (open <= 0) continue;
+    const s = f.s * (0.6 + 0.4 * open) * (1 + 0.3 * Math.sin(open * Math.PI));
+    ctx.fillStyle = FLOWER_COL[f.k];
+    for (let k = 0; k < 5; k++) { const an = k * TAU / 5 + f.d * 2; ctx.beginPath(); ctx.ellipse(f.x + Math.cos(an) * s * 0.55, f.y + Math.sin(an) * s * 0.55, s * 0.45, s * 0.3, an, 0, TAU); ctx.fill(); }
+    ctx.fillStyle = '#ffd84a'; ctx.beginPath(); ctx.arc(f.x, f.y, s * 0.25, 0, TAU); ctx.fill();
+  }
+}
+// ---- 木とつぼみの見た目（広場版の25回目から）
+const rgbOf = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+function dullCol(hex, k) { const [r, g, b] = rgbOf(hex), l = 0.3 * r + 0.59 * g + 0.11 * b, f = v => Math.round(lerp(v, l, k) * (1 - 0.06 * k)); return `rgb(${f(r)},${f(g)},${f(b)})`; }
+function drawTree() {   // 枯れた木（ブロックのまん中）。つぼみ：暗い／光った（取り戻した分）／花（締めで咲いた）
+  if (!tree.buds.length) return;
+  const B = song.bloom, life = B ? clamp(B.green, 0, 1) : 0;
+  const wood = life > 0 ? `rgb(${Math.round(lerp(110, 120, life))},${Math.round(lerp(98, 82, life))},${Math.round(lerp(88, 56, life))})` : 'rgb(110,98,88)';
+  ctx.fillStyle = 'rgba(0,0,0,0.16)'; ctx.beginPath(); ctx.ellipse(tree.x, tree.y + 0.03, tree.h * 0.2, tree.h * 0.05, 0, 0, TAU); ctx.fill();
+  ctx.lineCap = 'round'; ctx.strokeStyle = wood;
+  for (const [x0, y0, x1, y1, w] of tree.branches) { ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); }
+  const eg = extraGrow();
+  if (eg > 0) for (const [x0, y0, x1, y1, w] of tree.branchesX) { ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(lerp(x0, x1, eg), lerp(y0, y1, eg)); ctx.stroke(); }
+  ctx.strokeStyle = 'rgba(40,30,22,0.35)'; ctx.lineWidth = tree.h * 0.012;
+  ctx.beginPath(); ctx.moveTo(tree.x - tree.h * 0.015, tree.y - 0.04); ctx.lineTo(tree.x - tree.h * 0.01, tree.y - tree.h * 0.3); ctx.moveTo(tree.x + tree.h * 0.02, tree.y - tree.h * 0.08); ctx.lineTo(tree.x + tree.h * 0.012, tree.y - tree.h * 0.36); ctx.stroke();
+  ctx.lineCap = 'butt';
+  const beat = Math.pow(1 - beatPhase(), 2), r = tree.h * 0.085, shown = budShown();
+  tree.buds.forEach((bd, i) => {
+    if (i >= shown) return;
+    const f = B && B.list[i], open = f ? f.open : 0, gk = bd.gold ? Math.max(0.01, eg) : 1;
+    if (open > 0) { drawFlower(bd.x, bd.y, r * (1.2 + 1.1 * open), open, i); return; }
+    drawBud(bd.x, bd.y, r * gk, i < buds.lit, bd.gold, beat, clock - (buds.litAt[i] ?? -9));
+  });
+}
+function drawBud(x, y, r, lit, gold, beat, since) {   // つぼみ1つ（光った：あたたかい色で光る。光った瞬間は、ぽんと大きく）
+  const pop = since >= 0 && since < 0.5 ? Math.sin(since / 0.5 * Math.PI) : 0, rr = r * (1 + 0.5 * pop);
+  if (lit) {
+    const g = ctx.createRadialGradient(x, y, rr * 0.3, x, y, rr * (2.6 + 0.6 * beat));
+    g.addColorStop(0, `rgba(255,235,150,${0.75 + 0.25 * beat})`); g.addColorStop(1, 'rgba(255,200,120,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, rr * (2.6 + 0.6 * beat), 0, TAU); ctx.fill();
+    ctx.fillStyle = gold ? '#ffe9a0' : '#ffd6e0'; ctx.strokeStyle = gold ? '#c8962a' : '#c85a7a';
+  } else { ctx.fillStyle = '#4e4540'; ctx.strokeStyle = gold ? 'rgba(232,190,80,0.9)' : 'rgba(235,235,235,0.75)'; }
+  ctx.lineWidth = Math.max(0.02, rr * 0.28); ctx.beginPath(); ctx.ellipse(x, y, rr * 0.78, rr, 0, 0, TAU); ctx.fill(); ctx.stroke();
+  if (lit) { ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.beginPath(); ctx.ellipse(x - rr * 0.25, y - rr * 0.35, rr * 0.18, rr * 0.28, -0.4, 0, TAU); ctx.fill(); }
+}
+function drawFlower(x, y, r, open, i) {   // 花：5枚の花びらが開く
+  const rot = i * 1.3 + (1 - open) * 0.8, pr = r * (0.35 + 0.65 * Math.min(1, open));
+  ctx.fillStyle = 'rgba(255,240,200,0.35)'; ctx.beginPath(); ctx.arc(x, y, pr * 1.6, 0, TAU); ctx.fill();
+  ctx.fillStyle = i % 3 === 1 ? '#ffe8f0' : '#ffb7cf'; ctx.strokeStyle = '#d0587e'; ctx.lineWidth = Math.max(0.015, r * 0.08);
+  for (let k = 0; k < 5; k++) { const a = rot + k * TAU / 5; ctx.beginPath(); ctx.ellipse(x + Math.cos(a) * pr * 0.55, y + Math.sin(a) * pr * 0.55, pr * 0.5, pr * 0.32, a, 0, TAU); ctx.fill(); ctx.stroke(); }
+  ctx.fillStyle = '#ffd84a'; ctx.beginPath(); ctx.arc(x, y, pr * 0.24, 0, TAU); ctx.fill();
+}
+function drawPetals() {
+  const B = song.bloom; if (!B || !B.petals.length) return;
+  for (const p of B.petals) { ctx.globalAlpha = Math.min(1, (p.life - p.t) / 1.2); ctx.fillStyle = p.a % 2 > 1 ? '#ffd3e2' : '#ffb0c9'; ctx.beginPath(); ctx.ellipse(p.x, p.y, 0.12, 0.07, p.a, 0, TAU); ctx.fill(); }
+  ctx.globalAlpha = 1;
+}
+// ---- 粒・大きな実・こぼれた物
+function drawDots() {
+  const beat = Math.pow(1 - beatPhase(), 2), fe = feast();
+  for (const d of dots) {
+    if (d.eaten) continue;
+    const a = areas[d.area], few = !a.restored && a.left <= C.LAST_GLOW && !fe, col = DOT_COL[palKind(d.area)];
+    if (d.big) {   // 大きな実：つやつやの桃色の実と、2枚の葉
+      const r = 0.3 * (1 + 0.04 * beat);
+      ctx.fillStyle = 'rgba(255,120,170,0.18)'; ctx.beginPath(); ctx.arc(d.x, d.y, r * 1.7, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#ff8fb8'; ctx.beginPath(); ctx.arc(d.x, d.y + 0.03, r, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#ffd0e0'; ctx.beginPath(); ctx.ellipse(d.x - r * 0.3, d.y - r * 0.3, r * 0.3, r * 0.2, -0.6, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#6cc04a'; ctx.beginPath(); ctx.ellipse(d.x + r * 0.15, d.y - r * 0.95, r * 0.42, r * 0.2, -0.5, 0, TAU); ctx.fill(); ctx.beginPath(); ctx.ellipse(d.x - r * 0.2, d.y - r * 1.0, r * 0.36, r * 0.17, 0.6, 0, TAU); ctx.fill();
+      continue;
+    }
+    const r = 0.11 + 0.012 * beat + (few ? 0.04 + 0.03 * Math.sin(clock * 6 + d.seed * 6) : 0);
+    ctx.fillStyle = `rgba(${hexRGB(col)},${few ? 0.35 + 0.2 * beat : 0.16 + 0.1 * beat})`; ctx.beginPath(); ctx.arc(d.x, d.y, r * (few ? 3 : 2.3), 0, TAU); ctx.fill();   // やわらかい光
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(d.x, d.y, r, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.beginPath(); ctx.arc(d.x - r * 0.3, d.y - r * 0.3, r * 0.3, 0, TAU); ctx.fill();
+  }
+}
+function drawSpills() {
+  for (const s of spills) {
+    const u = clamp(s.t / 0.35, 0, 1), e = 1 - (1 - u) * (1 - u), x = lerp(s.x0, s.x, e), y = lerp(s.y0, s.y, e) - Math.sin(u * Math.PI) * 0.5;
+    const left = s.life - s.t, blink = left < 1.5 ? (Math.sin(clock * 22) > 0 ? 1 : 0.35) : 1;
+    ctx.globalAlpha = blink;
+    ctx.fillStyle = `rgba(${hexRGB(s.col)},0.3)`; ctx.beginPath(); ctx.arc(x, y, 0.28 + 0.05 * Math.sin(clock * 8 + s.seed * 9), 0, TAU); ctx.fill();
+    ctx.fillStyle = s.col; ctx.beginPath(); ctx.arc(x, y, 0.12, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.beginPath(); ctx.arc(x - 0.035, y - 0.035, 0.04, 0, TAU); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+// ---- 音を消すもの：灰色のもやもやに目。目は進む向きを見る。サビではこわがる姿（白っぽく、ふるえる）。目だけで逃げる
+function drawMon(m) {
+  if (m.state === 'wait' || m.state === 'gone') return;
+  const scared = m.state === 'scared', eyesOnly = m.state === 'eyes', R = 0.47, [dx, dy] = DIRS[m.dir] || [0, 0];
+  ctx.save();
+  if (m.state === 'out') { ctx.beginPath(); ctx.rect(m.hole.c - 1, m.hole.r - 2.5, 3, 2.5 + 0.5); ctx.clip(); ctx.globalAlpha = 0.35 + 0.65 * m.rise; }   // 穴から出てくる：穴の口より上だけ見える
+  if (m.state === 'leave') ctx.globalAlpha = m.fade;
+  const x = m.x, y = m.y + (scared ? 0.02 * Math.sin(clock * 40) : 0), base = scared ? '212,218,246' : '134,134,148';
+  if (!eyesOnly) {
+    for (let k = 1; k <= 3; k++) {   // 後ろに残る、うすいもや
+      ctx.fillStyle = `rgba(${base},${0.14 - 0.035 * k})`;
+      ctx.beginPath(); ctx.arc(x - dx * k * 0.24 + Math.sin(m.wob * 3 + k * 2) * 0.05, y - dy * k * 0.24 + Math.cos(m.wob * 2.3 + k) * 0.05, R * (0.95 - 0.17 * k), 0, TAU); ctx.fill();
+    }
+    for (let L = 0; L < 3; L++) {   // もやもやの体：ぎざぎざの丸を3枚（外ほど薄く・大きく、ゆらゆら）
+      const a = [0.2, 0.45, 1][L], r0 = R * [1.5, 1.2, 1][L] * (scared ? 0.94 : 1);
+      ctx.fillStyle = `rgba(${base},${a})`;
+      ctx.beginPath();
+      for (let i = 0; i < 22; i++) { const an = i / 22 * TAU, w = Math.sin(m.wob * 2.6 + i * 2.1 + L * 1.7) * 0.09 + Math.sin(m.wob * 4.1 - i * 1.3 + L) * 0.05, rr = r0 * (1 + w); i ? ctx.lineTo(x + Math.cos(an) * rr, y + Math.sin(an) * rr * 1.06) : ctx.moveTo(x + Math.cos(an) * rr, y + Math.sin(an) * rr * 1.06); }
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.fillStyle = scared ? 'rgba(120,130,200,0.22)' : 'rgba(40,40,52,0.32)'; ctx.beginPath(); ctx.arc(x, y - 0.03, R * 0.6, 0, TAU); ctx.fill();   // 目のまわりの、暗い芯
+  }
+  // 目：白目と黒目（進む向きを見る）。こわがると、大きく開いて眉が下がる
+  const er = scared ? 0.16 : 0.14, pr = er * (scared ? 0.42 : 0.55), ox = dx * 0.04, oy = dy * 0.04;
+  for (const s of [-1, 1]) {
+    const ex = x + s * 0.18 + ox, ey = y - 0.08 + oy;
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.ellipse(ex, ey, er * 0.85, er, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = scared ? '#4a3a8a' : '#1a1a22'; ctx.beginPath(); ctx.arc(ex + dx * er * 0.4, ey + dy * er * 0.45 + (scared ? 0.02 : 0), pr, 0, TAU); ctx.fill();
+    if (scared) { ctx.strokeStyle = '#4a3a8a'; ctx.lineWidth = 0.035; ctx.beginPath(); ctx.moveTo(ex - s * er * 0.6, ey - er * 1.6); ctx.lineTo(ex + s * er * 0.9, ey - er * 1.2); ctx.stroke(); }   // 困った眉（内側が上がる）
+  }
+  if (scared && !eyesOnly) { ctx.strokeStyle = '#4a3a8a'; ctx.lineWidth = 0.04; ctx.beginPath(); for (let i = 0; i <= 6; i++) { const px = x - 0.18 + i * 0.06, py = y + 0.2 + (i % 2 ? 0.04 : -0.02); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.stroke(); }   // ふるえる口
+  ctx.restore();
+}
+// ---- ハムスター：歩くと足と体が弾む、向きが分かる、食べると口が動く、ほっぺは食べた量でふくらむ、ときどきまばたき。当たるとびっくり顔
+const cheekSize = (puff, lvc = 0) => { const e = Math.max(0, puff - 1); return Math.min(1.55, 0.42 + 0.36 * Math.min(e, 2.2) + 0.13 * Math.max(0, e - 2.2)) + 0.035 * lvc; };
+function drawHamster() {
+  const r0 = 0.4, pulse = 1 + 0.12 * Math.sin(ham.pulse * Math.PI), r = r0 * pulse, ang = [0, Math.PI / 2, Math.PI, -Math.PI / 2][ham.face] ?? 0;
+  const safe = clock < ham.safeUntil && !songOver && !song.burst, shock = clock - ham.hitAt < 0.7;
+  if (safe && Math.sin(clock * 22) < -0.2) ctx.globalAlpha = 0.45;   // 当たったあと：点滅（当たらない）
+  const moving = ham.moving && !paused, hop = moving ? 0.07 * Math.abs(Math.sin(ham.step * 5.2)) : 0;
+  ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.beginPath(); ctx.ellipse(ham.x, ham.y + r * 0.25, r * 1.1, r * 0.75, 0, 0, TAU); ctx.fill();   // 影
+  ctx.save();
+  const jit = ham.shiver ? r * 0.07 : 0;
+  ctx.translate(ham.x + (rnd() - 0.5) * jit, ham.y - hop - (ham.z || 0) + (rnd() - 0.5) * jit);
+  if (ham.shiver) { const q = 1 + 0.05 * Math.sin(clock * 60); ctx.scale(q, 2 - q); }
+  ctx.rotate(ham.sqAng); ctx.scale(1 - ham.sq, 1 + ham.sq * 0.85); ctx.rotate(-ham.sqAng);
+  const wob = moving ? 0.07 * Math.sin(ham.step * 10.4) : 0;
+  ctx.rotate(ang); ctx.scale(1 + wob, 1 - wob * 0.8);
+  // 足：歩くと前後に動く（体の下の、2つの小さな丸）
+  ctx.fillStyle = '#c97f3e';
+  for (const s of [-1, 1]) { const ph = moving ? Math.sin(ham.step * 10.4 + (s > 0 ? 0 : Math.PI)) : 0; ctx.beginPath(); ctx.ellipse(r * 0.1 + ph * r * 0.28, s * r * 0.62, r * 0.22, r * 0.14, 0, 0, TAU); ctx.fill(); }
+  // ほっぺ：食べた量でふくらむ（中に、食べた粒の色）
+  const puff = Math.sqrt(ham.pouch / 30), cs = cheekSize(puff, charge.lv) * (1 + 0.06 * ham.cheekW) + 0.06 * charge.pop, tens = clamp((cs - 0.95) / 0.5, 0, 1);
+  const sides = [-1, 1].filter(c => ham.items.some(it => it.cheek === c));
+  const cheekAt = c => [-r * (0.1 + 0.06 * tens), c * r * (0.55 + 0.12 * Math.min(2, Math.max(0, puff - 1))), r * cs * (1 + 0.035 * tens * Math.sin(clock * 23 + c * 1.7))];
+  if (sides.length) {
+    for (const c of sides) { const [ax, ay, ar] = cheekAt(c); ctx.fillStyle = '#5b3a1e'; ctx.beginPath(); ctx.arc(ax, ay, ar + 0.03, 0, TAU); ctx.fill(); }
+    for (const c of sides) {
+      const [ax, ay, ar] = cheekAt(c);
+      ctx.fillStyle = tens > 0 ? `rgb(${Math.round(246 + 6 * tens)},${Math.round(207 + 10 * tens)},${Math.round(158 + 22 * tens)})` : '#f6cf9e'; ctx.beginPath(); ctx.arc(ax, ay, ar, 0, TAU); ctx.fill();
+      ctx.save(); ctx.beginPath(); ctx.arc(ax, ay, ar * 0.92, 0, TAU); ctx.clip();   // 中身：食べた粒（新しい物ほど外に）
+      const its = ham.items.filter(it => it.cheek === c).slice(-22), n = Math.max(6, its.length);
+      its.forEach((it, k) => { const a = k * 2.4 + it.seed * 6, rad = ar * 0.62 * Math.sqrt((k + 0.5) / n); ctx.globalAlpha *= 0.85; ctx.fillStyle = it.col; ctx.beginPath(); ctx.arc(ax + Math.cos(a) * rad, ay + Math.sin(a) * rad, Math.min(ar * 0.26, 0.1), 0, TAU); ctx.fill(); ctx.globalAlpha /= 0.85; });
+      ctx.restore();
+      ctx.fillStyle = `rgba(255,255,255,${0.35 + 0.35 * tens})`; ctx.beginPath(); ctx.ellipse(ax + ar * 0.3, ay - c * ar * 0.25, ar * 0.28, ar * 0.12, c * 0.5, 0, TAU); ctx.fill();
+    }
+  }
+  // 耳（後ろの上）
+  ctx.fillStyle = '#e9a35b'; ctx.strokeStyle = '#5b3a1e'; ctx.lineWidth = Math.max(0.025, r * 0.07);
+  for (const s of [-1, 1]) { ctx.beginPath(); ctx.arc(-r * 0.45, s * r * 0.72, r * 0.26, 0, TAU); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#f0a0a8'; ctx.beginPath(); ctx.arc(-r * 0.45, s * r * 0.72, r * 0.13, 0, TAU); ctx.fill(); ctx.fillStyle = '#e9a35b'; }
+  // 体
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fillStyle = '#e9a35b'; ctx.fill(); ctx.lineWidth = Math.max(0.03, r * 0.08); ctx.strokeStyle = '#5b3a1e'; ctx.stroke();
+  ctx.fillStyle = '#f7dcb0'; ctx.beginPath(); ctx.ellipse(r * 0.25, 0, r * 0.62, r * 0.5, 0, 0, TAU); ctx.fill();   // 顔のまわりの明るい毛
+  // 口：食べた直後は、ぱくぱく。びっくりは「お」
+  const chew = ham.eatT < 0.22 ? Math.sin(ham.eatT / 0.22 * Math.PI) : 0;
+  ctx.strokeStyle = '#5b3a1e'; ctx.lineWidth = Math.max(0.02, r * 0.06); ctx.lineCap = 'round';
+  if (shock) { ctx.fillStyle = '#5b3a1e'; ctx.beginPath(); ctx.ellipse(r * 0.78, 0, r * 0.1, r * 0.14, 0, 0, TAU); ctx.fill(); }
+  else if (chew > 0) { ctx.fillStyle = '#6b3030'; ctx.beginPath(); ctx.ellipse(r * 0.8, 0, r * 0.08 + r * 0.14 * chew, r * 0.1 + r * 0.16 * chew, 0, 0, TAU); ctx.fill(); }
+  else { ctx.beginPath(); ctx.arc(r * 0.74, 0, r * 0.12, -0.9, 0.9); ctx.stroke(); }
+  // 歯（小さく）
+  ctx.fillStyle = '#fffdf0'; ctx.fillRect(r * 0.82, -r * 0.1, r * 0.1 + (chew > 0 ? r * 0.08 : 0), r * 0.09); ctx.fillRect(r * 0.82, r * 0.01, r * 0.1 + (chew > 0 ? r * 0.08 : 0), r * 0.09);
+  // 鼻
+  ctx.fillStyle = '#e86a7a'; ctx.beginPath(); ctx.arc(r * 0.92, 0, r * 0.1, 0, TAU); ctx.fill();
+  // 目：黒目は行きたい向きを見る。まばたき。びっくりは大きく。噴き出したあとはにっこり
+  const want = ham.want >= 0 ? ham.want : ham.face, wa = ([0, Math.PI / 2, Math.PI, -Math.PI / 2][want] ?? 0) - ang, lx = Math.cos(wa), ly = Math.sin(wa);
+  const er = r * 0.24, pr = er * 0.58, blink = ham.blink > 0 ? 1 : 0, sq = chargeLive() ? clamp(charge.lv / C.CHARGE_STEPS * 0.5 + tens * 0.5, 0, 1) : 0;
+  for (const s of [-1, 1]) {
+    const ex = r * 0.42, ey = s * r * 0.42;
+    if (ham.relief > 0) { ctx.lineWidth = Math.max(0.02, r * 0.07); ctx.beginPath(); ctx.arc(ex - er * 0.2, ey, er * 0.75, Math.PI * 0.15, Math.PI * 0.85, true); ctx.stroke(); ctx.fillStyle = 'rgba(240,110,120,0.45)'; ctx.beginPath(); ctx.ellipse(ex - er * 1.1, ey + s * er * 0.9, er * 0.7, er * 0.45, 0, 0, TAU); ctx.fill(); continue; }
+    if (blink || sq >= 0.8) { ctx.lineWidth = Math.max(0.02, r * 0.08); ctx.beginPath(); ctx.moveTo(ex - er * 0.7, ey); ctx.lineTo(ex + er * 0.7, ey); ctx.stroke(); continue; }
+    ctx.save(); ctx.translate(ex, ey); ctx.scale(1 - 0.6 * sq, 1); if (shock) ctx.scale(1.35, 1.35);
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, er, 0, TAU); ctx.fill(); ctx.lineWidth = Math.max(0.015, r * 0.04); ctx.strokeStyle = '#5b3a1e'; ctx.stroke();
+    const qx = shock ? 0 : lx * er * 0.4 * (1 - sq), qy = shock ? 0 : ly * er * 0.4;
+    ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(qx, qy, shock ? pr * 0.7 : pr, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(qx - pr * 0.35, qy - pr * 0.35, pr * 0.3, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
+  ctx.lineCap = 'butt';
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+// ---- 仲間：泡の中でしょんぼり（閉じこめられている）／走る／木のそばで、拍に合わせて弾みながら演奏／締め：喜ぶ・踊る・座る
+function drawPals() {
+  const R = palR(), beat = Math.pow(1 - beatPhase(), 2);
+  for (const p of pals.list) {
+    let hop = 0, wave = 0, sc = 1, happy = false, sad = false;
+    if (p.state === 'trapped') {   // 灰色の泡の中：小さく、ときどきため息のように沈む
+      sad = true; sc = 0.86; hop = -0.03 + 0.03 * Math.sin(clock * 1.3 + p.seed * 5);
+      ctx.fillStyle = 'rgba(205,205,220,0.62)'; ctx.beginPath(); ctx.ellipse(p.x, p.y - R * 0.3, R * 1.75, R * 1.95, 0, 0, TAU); ctx.fill();
+      ctx.strokeStyle = 'rgba(230,230,240,0.75)'; ctx.lineWidth = 0.035; ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.beginPath(); ctx.ellipse(p.x - R * 0.7, p.y - R * 1.3, R * 0.4, R * 0.22, -0.7, 0, TAU); ctx.fill();
+    } else if (p.state === 'run') { hop = Math.abs(Math.sin(clock * 16)) * R * 0.5; happy = true; }
+    else if (p.state === 'play') { hop = beat * R * 0.35; const dp = audioNow() - (p.pulseAt ?? -9); if (dp >= 0 && dp < 0.24) hop += Math.sin(dp / 0.24 * Math.PI) * R * 0.5; wave = Math.sin(clock * 7 + p.i) * 0.6; }
+    else if (p.state === 'party') { hop = songOver ? 0 : Math.abs(Math.sin(clock * 7 + p.i * 1.3)) * R * 0.7; happy = true; }
+    else if (p.state === 'dance') { const q = (beatPhase() + p.i * 0.25) % 1; hop = Math.sin(q * Math.PI) * R * 0.9; wave = Math.sin(clock * 8 + p.i) * 1.2; happy = true; }
+    else if (p.state === 'sit') sc = 0.92;
+    if (p.state !== 'trapped') { ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.beginPath(); ctx.ellipse(p.x, p.y + R * 0.85, R * 0.75 * sc, R * 0.28 * sc, 0, 0, TAU); ctx.fill(); }
+    drawPal(p.kind, p.x, p.y - hop, R * sc, { wave, happy, sad });
+  }
+}
+// ---- 噴き出した宝・輪・きらっ
+function drawFlyers() {
+  for (const p of flyers) {
+    if (p.t < 0 || !p.show) continue;
+    const u = clamp(p.t / p.T, 0, 1), x = lerp(p.x0, p.tx, u), y = lerp(p.y0, p.ty, u), z = 4 * p.H * u * (1 - u), sk = u > 0.75 ? 1 - (u - 0.75) / 0.25 * 0.85 : 1;
+    ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.beginPath(); ctx.ellipse(x, y, p.w * 0.6, p.w * 0.3, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = p.col; ctx.beginPath(); ctx.arc(x, y - z, p.w * 0.5 * (1 + 0.4 * Math.sin(u * Math.PI)) * sk, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.beginPath(); ctx.arc(x - p.w * 0.12, y - z - p.w * 0.12, p.w * 0.14 * sk, 0, TAU); ctx.fill();
+  }
+}
+function sparkle(cx, cy, s) {   // 4本の光のきらっ
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.moveTo(cx, cy - s); ctx.quadraticCurveTo(cx, cy, cx + s, cy); ctx.quadraticCurveTo(cx, cy, cx, cy + s); ctx.quadraticCurveTo(cx, cy, cx - s, cy); ctx.quadraticCurveTo(cx, cy, cx, cy - s); ctx.fill();
+}
+function drawFx() {
+  for (const g of rings) {
+    if (g.t < 0) continue;
+    const p = g.t / g.life, e = 1 - (1 - p) * (1 - p);
+    ctx.strokeStyle = `rgba(${g.color},${1 - p})`; ctx.lineWidth = g.width * (1 - p * 0.5);
+    ctx.beginPath(); ctx.arc(g.x, g.y, g.r0 + e * g.grow, 0, TAU); ctx.stroke();
+  }
+  for (const k of sparks) {
+    if (k.t < 0) continue;
+    const p = k.t / k.life, e = 1 - (1 - p) * (1 - p);
+    ctx.globalAlpha = 1 - p * p;
+    sparkle(k.x, k.y, k.s * (0.5 + 0.7 * Math.sin(Math.min(1, p * 1.6) * Math.PI / 2)));
+    for (let i = 0; i < 5; i++) { const a = i / 5 * TAU + 0.4, r = k.s * (0.6 + 1.2 * e); sparkle(k.x + Math.cos(a) * r, k.y + Math.sin(a) * r, k.s * 0.28 * (1 - p)); }
+    ctx.globalAlpha = 1;
+  }
+}
+// ---- 画面のあいた所：小さな木（光ったつぼみ／まだのつぼみ。クリアが決まると金のつぼみが出る）と、曲の進み具合の細い帯（文字なし）
+function miniBox() {   // 小さな木の箱の場所：パソコンは迷路の右、スマホは迷路の下
+  if (portrait) { const h = Math.min(86, H - (OY + ROWS * T) - 14), w = Math.min(150, W - 24); return { x: Math.round(W / 2 - w / 2), y: OY + ROWS * T + 8, w, h }; }
+  const w = Math.min(150, W - (OX + COLS * T) - 20), h = Math.min(136, Math.round(w * 0.9)); return { x: OX + COLS * T + Math.round((W - OX - COLS * T - w) / 2), y: OY + 6, w, h };
+}
+function drawMiniTree() {
+  if (!tree.buds.length) return;
+  const b = miniBox(); if (b.w < 60 || b.h < 50) { mini.pos = []; return; }
+  mini.box = b;
+  const k = (b.h - 14) / (tree.h * 1.15), SX = 1.45, ox = b.x + b.w / 2 - tree.x * k * SX, oy = b.y + b.h - 8 - tree.y * k;
+  ctx.fillStyle = 'rgba(20,16,12,0.7)'; ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 12); ctx.fill();
+  ctx.save(); ctx.translate(ox, oy); ctx.scale(k * SX, k);
+  ctx.lineCap = 'round'; ctx.strokeStyle = 'rgb(150,132,116)';
+  for (const [x1, y1, x2, y2, w] of tree.branches) { ctx.lineWidth = Math.max(w, 2.2 / k); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
+  const eg = extraGrow();
+  if (eg > 0) for (const [x1, y1, x2, y2, w] of tree.branchesX) { ctx.lineWidth = Math.max(w, 1.6 / k); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(lerp(x1, x2, eg), lerp(y1, y2, eg)); ctx.stroke(); }
+  ctx.lineCap = 'butt'; ctx.restore();
+  const fl = buds.cleared ? clamp(1 - (clock - buds.clearAt) / 0.7, 0, 1) : 0;
+  if (fl > 0) { ctx.fillStyle = `rgba(255,240,170,${0.45 * fl})`; ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 12); ctx.fill(); ctx.strokeStyle = `rgba(255,240,170,${fl})`; ctx.lineWidth = 3; ctx.stroke(); }
+  const beat = Math.pow(1 - beatPhase(), 2), r = Math.min(9, b.h * 0.075), shown = budShown(), B = song.bloom;
+  mini.pos = tree.buds.map((bd, i) => {
+    const x = ox + bd.x * k * SX, y = oy + bd.y * k, f = B && B.list[i];
+    if (i >= shown) return [x, y];
+    if (f && f.open > 0) drawFlower(x, y, r * 1.6, f.open, i);
+    else {
+      const rr = r * (bd.gold ? Math.max(0.01, eg) : 1);
+      drawBud(x, y, rr, i < buds.lit, bd.gold, beat, clock - (buds.litAt[i] ?? -9));
+      if (i >= buds.lit) { ctx.strokeStyle = bd.gold ? 'rgba(240,195,70,0.95)' : 'rgba(255,255,255,0.85)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, rr + 3, 0, TAU); ctx.stroke(); }
+    }
+    return [x, y];
+  });
+}
+function drawBudFly() {   // 光の粒：取り戻した所から、小さな木のつぼみへ（弧を描いて）
+  for (const p of buds.fly) {
+    const to = mini.pos[p.k]; if (!to) continue;
+    const u = clamp(p.t / p.T, 0, 1), e = u * u * (3 - 2 * u), sx = view.ox + p.x * view.VS, sy = view.oy + p.y * view.VS;
+    if (p.done) { const q = (p.t - p.T) / 0.3; ctx.strokeStyle = `rgba(255,240,170,${1 - q})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(to[0], to[1], 8 + 18 * q, 0, TAU); ctx.stroke(); continue; }
+    const mx = (sx + to[0]) / 2, my = Math.min(sy, to[1]) - 60, x = (1 - e) * (1 - e) * sx + 2 * e * (1 - e) * mx + e * e * to[0], y = (1 - e) * (1 - e) * sy + 2 * e * (1 - e) * my + e * e * to[1];
+    const g = ctx.createRadialGradient(x, y, 1, x, y, 16); g.addColorStop(0, 'rgba(255,250,220,1)'); g.addColorStop(1, 'rgba(255,220,120,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 16, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, 4, 0, TAU); ctx.fill();
+  }
+}
+const BAND_COL = { intro: '#6a6a6a', a: '#4f7d4a', b: '#3f7a7a', build: '#b07a2a', chorus: '#d4a419', finale: '#8a5fb0' };
+function drawSongBand() {   // 曲の進み具合：細い帯（場面ごとに色。サビは金色。いまの所に白い印）。文字なし
+  const y = portrait ? 62 : 10, h = portrait ? 8 : 9, x0 = OX, x1 = OX + COLS * T, beat = Math.pow(1 - beatPhase(), 2);
+  const X = bar => x0 + (x1 - x0) * bar / SONG_END;
+  for (const p of PLAN) {
+    const now = song.part === p.k, glow = now && (p.k === 'build' || p.k === 'chorus') ? 0.25 * beat : 0;
+    ctx.fillStyle = BAND_COL[p.k]; ctx.globalAlpha = now ? 1 : 0.6; ctx.beginPath(); ctx.roundRect(X(p.from) + 1, y, X(p.to) - X(p.from) - 2, h, 3); ctx.fill();
+    if (glow) { ctx.fillStyle = `rgba(255,240,170,${glow})`; ctx.fill(); }
+  }
+  ctx.globalAlpha = 1;
+  if (song.live) { const x = X(clamp(song.t / barSec(), 0, SONG_END)); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.roundRect(x - 2, y - 2, 4, h + 4, 2); ctx.fill(); }
+}
+function drawPlayButton() {   // 最初：大きな ▶（押すと音が出て始まる）
+  const cx = OX + COLS * T / 2, cy = OY + ROWS * T / 2, R = Math.min(64, T * 2.2) * (1 + 0.05 * Math.sin(performance.now() / 300));
+  ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.beginPath(); ctx.arc(cx, cy, R * 1.25, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#ffe14a'; ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#4a3a10'; ctx.beginPath(); ctx.moveTo(cx - R * 0.32, cy - R * 0.45); ctx.lineTo(cx + R * 0.5, cy); ctx.lineTo(cx - R * 0.32, cy + R * 0.45); ctx.closePath(); ctx.fill();
+}
+function drawPaused() {   // ほかの画面に切り替えたときの一時停止：暗くして ▶ だけ
+  const py = H / 2, pr = 22 * (1 + 0.12 * Math.sin(performance.now() / 180));
+  ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#ffe14a'; ctx.beginPath(); ctx.moveTo(W / 2 - pr * 0.7, py - pr); ctx.lineTo(W / 2 + pr, py); ctx.lineTo(W / 2 - pr * 0.7, py + pr); ctx.closePath(); ctx.fill();
+}
+function render() {
+  if (cv.width !== Math.round(innerWidth * DPR) || innerWidth !== W || innerHeight !== H) layout();
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = '#23221f'; ctx.fillRect(0, 0, W, H);
+  // 締め：木を中心に、ゆっくり寄る（それ以外は、カメラは動かない）
+  const z = cam.zoom, fx = tree.x, fy = tree.y - tree.h * 0.45, sx = shake * Math.sin(clock * 71), sy = shake * Math.cos(clock * 53);
+  const VS = T * z, ox = OX + fx * T * (1 - z) + sx, oy = OY + fy * T * (1 - z) + sy;
+  Object.assign(view, { VS, ox, oy, z });
+  ctx.save();
+  ctx.beginPath(); ctx.rect(OX - 2, OY - 2, COLS * T + 4, ROWS * T + 4); ctx.clip();
+  ctx.setTransform(DPR * VS, 0, 0, DPR * VS, DPR * ox, DPR * oy);
+  // 地面と生け垣：くすんだ絵の上に、色が戻った所（取り戻したエリア＝広がる波の中。クリアの波）だけ色ありの絵
+  ctx.drawImage(layers.dull, 0, 0, COLS, ROWS);
+  ctx.save(); ctx.beginPath();
+  let any = false;
+  for (const a of areas) if (a.restored) { any = true; const wave = clamp((clock - a.at) * 9, 0, 40); ctx.save(); ctx.clip(areaPaths[a.i]); ctx.beginPath(); ctx.arc(a.wx, a.wy, wave, 0, TAU); ctx.clip(); ctx.drawImage(layers.color, 0, 0, COLS, ROWS); ctx.restore(); }
+  const B = song.bloom;
+  if (B && B.wave > 0) { ctx.save(); ctx.beginPath(); ctx.arc(tree.x, tree.y - tree.h * 0.5, B.wave, 0, TAU); ctx.clip(); ctx.drawImage(layers.color, 0, 0, COLS, ROWS); ctx.restore(); any = true; }
+  ctx.restore();
+  for (const a of areas) if (a.restored && clock - a.at < 1.2) { const u = (clock - a.at) / 1.2; ctx.strokeStyle = `rgba(255,255,255,${0.8 * (1 - u)})`; ctx.lineWidth = 0.12 * (1 - u); ctx.beginPath(); ctx.arc(a.wx, a.wy, u * 10, 0, TAU); ctx.stroke(); }   // 色の波の先
+  void any;
+  if (song.part === 'build' || feast()) {   // ため・サビ：迷路のふちが拍に合わせて光る
+    const a = Math.pow(1 - beatPhase(), 2) * (song.part === 'build' ? 0.9 : 0.55);
+    ctx.strokeStyle = `rgba(${S.look.glow},${a})`; ctx.lineWidth = 0.12 + 0.12 * a; ctx.strokeRect(0.06, 0.06, COLS - 0.12, ROWS - 0.12);
+  }
+  drawWallFlowers();
+  drawTree();
+  drawDots();
+  drawSpills();
+  drawPals();
+  for (const m of mons) drawMon(m);
+  if (chargeLive()) drawChargeGlow();
+  drawHamster();
+  drawFlyers();
+  drawFx();
+  drawNoteFx();
+  drawPetals();
+  ctx.restore();
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  drawSongBand();
+  drawMiniTree();
+  drawBudFly();
+  if (paused && !menuOpen) { drawPaused(); return; }
+  if (!started && !songOver) drawPlayButton();
+}
+function drawChargeGlow() {   // ため：ハムスターのまわりが光る（ためるほど大きく明るく）
+  const r = 0.4, lvc = charge.lv / C.CHARGE_STEPS, R = r * (1.5 + 0.7 * lvc + (lvc >= 1 ? 0.12 * Math.sin(clock * 30) : 0)), a = 0.3 + 0.45 * lvc;
+  const g = ctx.createRadialGradient(ham.x, ham.y, r * 0.6, ham.x, ham.y, R);
+  g.addColorStop(0, `rgba(255,245,170,${a})`); g.addColorStop(1, 'rgba(255,220,120,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(ham.x, ham.y, R, 0, TAU); ctx.fill();
+}
+
+// ============================================================
+//  更新・操作・ボット・ループ
+// ============================================================
+function update(dt) {
+  clock += dt;
+  if (started && !songOver) time += dt;
+  if (AC && AC.state === 'running') { if (!mus.running) { mus.running = true; if (mus.timer && song.live) alignMusic(); } } else mus.running = false;   // 音の時計が動き出したら、曲の進みをそろえ直す
+  songTick(dt);
+  if (song.hop) {   // 締め：木の前へ、ぴょんと（ふわっと弧を描いて。着いたら、ぽよん）
+    const h = song.hop, u = clamp((clock - h.t0) / h.T, 0, 1), e = u * u * (3 - 2 * u);
+    ham.x = lerp(h.x0, h.x1, e); ham.y = lerp(h.y0, h.y1, e); ham.z = Math.sin(u * Math.PI) * h.H; ham.face = 3; ham.moving = 0;
+    if (ham.x < 0) ham.x += COLS; else if (ham.x >= COLS) ham.x -= COLS;
+    if (u >= 1) { song.hop = null; ham.z = 0; squash(Math.PI / 2, 0.25); }
+  } else moveHam(dt);
+  eatTick();
+  monsTick(dt);
+  hitTick();
+  palsTick(dt);
+  budsTick(dt);
+  spillsTick(dt);
+  muffleTick();
+  // 締め：木を中心に、ゆっくり寄る。噴き出したら少し引く
+  const zTo = song.part === 'finale' || song.burst || songOver ? (song.burst ? 0.82 : 1) * (portrait ? C.FOCUS_ZOOM_PHONE : C.FOCUS_ZOOM_PC) : 1;
+  cam.zoom += (zTo - cam.zoom) * (1 - Math.exp(-dt * (song.burst ? 4 : 1.6)));
+  // ハムスターの体のばね・まばたき・口
+  ham.sqV += (-300 * ham.sq - 11 * ham.sqV) * dt; ham.sq = clamp(ham.sq + ham.sqV * dt, -0.45, 0.55);
+  ham.cheekV += (-260 * ham.cheekW - 9 * ham.cheekV) * dt; ham.cheekW = clamp(ham.cheekW + ham.cheekV * dt, -0.3, 0.5);
+  ham.eatT += dt; ham.popT += dt;
+  if (ham.blink > 0) ham.blink -= dt; else if ((ham.blinkAt -= dt) <= 0) { ham.blink = 0.11; ham.blinkAt = 2.5 + rnd() * 3; }
+  if (ham.relief > 0) ham.relief -= dt;
+  if (ham.pulse > 0) ham.pulse = Math.max(0, ham.pulse - dt / 0.5);
+  if (clock - mus.grooveAt > C.GROOVE_HOLD) mus.groove = Math.max(0, mus.groove - dt * C.GROOVE_FADE);
+  shake = Math.max(0, shake - dt * C.SHAKE_DECAY);
+  for (const g of rings) g.t += dt; rings = rings.filter(g => g.t < g.life);
+  for (const k of sparks) k.t += dt; sparks = sparks.filter(k => k.t < k.life);
+  noteFxTick(dt);
+  flyersTick();
+  bloomTick(dt);
+}
+
+// ---------------- 操作 ----------------
+//   パソコン：矢印キー・WASD。マウスは、押している間、ハムスターから見てマウスのある向き（上下左右の近い方）へ
+//   スマホ：画面のどこでも、指をすべらせた向き（スワイプ）。離しても、その向きに進み続ける
+const KEYMAP = { KeyW: 3, ArrowUp: 3, KeyS: 1, ArrowDown: 1, KeyA: 2, ArrowLeft: 2, KeyD: 0, ArrowRight: 0 };
+const setWant = d => { input.want = d; ham.want = d; };
+addEventListener('keydown', e => {
+  if (e.code === 'Escape') { e.preventDefault(); if (!e.repeat && started && !songOver) (menuOpen ? closePause() : openPause()); return; }
+  if (menuOpen) { if ((e.code === 'Enter' || e.code === 'Space') && !e.repeat) { e.preventDefault(); closePause(); } return; }
+  if (songOver) { if ((e.code === 'Enter' || e.code === 'Space' || e.code === 'KeyR') && !e.repeat) { e.preventDefault(); again(); } return; }
+  if (!started) { if (!e.repeat && (e.code === 'Enter' || e.code === 'Space' || KEYMAP[e.code] !== undefined)) { e.preventDefault(); startSong(); } return; }
+  const d = KEYMAP[e.code];
+  if (d !== undefined) { e.preventDefault(); if (!e.repeat || ham.want !== d) setWant(d); }
+});
+addEventListener('keyup', e => { if (KEYMAP[e.code] !== undefined && input.want === KEYMAP[e.code]) input.want = -1; });   // 離したら、先入れだけ残す（ham.want）
+addEventListener('blur', () => { input.want = -1; ptr.down = false; ptr.id = null; });
+function ptrAim() {   // マウス：ハムスターから見た向き
+  if (ptr.type !== 'mouse') return;
+  const hx = view.ox + ham.x * view.VS, hy = view.oy + ham.y * view.VS, dx = ptr.sx - hx, dy = ptr.sy - hy;
+  if (Math.hypot(dx, dy) < view.VS * 0.5) return;
+  setWant(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 0 : 2) : (dy > 0 ? 1 : 3));
+}
+cv.addEventListener('pointerdown', e => {
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  if (e.pointerType === 'touch' && !touchUI) setTouchUI();
+  audioInit();
+  if (songOver || menuOpen) return;
+  if (!started) { startSong(); return; }
+  if (ptr.id !== null && ptr.down) return;
+  ptr.id = e.pointerId; ptr.down = true; ptr.type = e.pointerType; ptr.sx = ptr.x0 = e.clientX; ptr.sy = ptr.y0 = e.clientY; ptr.moved = false;
+  ptrAim();
+  try { cv.setPointerCapture(e.pointerId); } catch (err) { /* 試験用に作ったイベントなど */ }
+  e.preventDefault();
+});
+cv.addEventListener('pointermove', e => {
+  if (e.pointerId !== ptr.id || !ptr.down) return;
+  ptr.sx = e.clientX; ptr.sy = e.clientY;
+  if (ptr.type === 'mouse') ptrAim();
+  else {   // スワイプ：すべらせた向き（18px 以上）。続けてすべらせれば、また向きを変えられる
+    const dx = ptr.sx - ptr.x0, dy = ptr.sy - ptr.y0;
+    if (Math.hypot(dx, dy) >= 18) { setWant(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 0 : 2) : (dy > 0 ? 1 : 3)); ptr.x0 = ptr.sx; ptr.y0 = ptr.sy; ptr.moved = true; }
+  }
+  e.preventDefault();
+});
+const ptrEnd = e => { if (e.pointerId === ptr.id) { ptr.down = false; ptr.id = null; if (ptr.type === 'mouse') input.want = -1; } };
+cv.addEventListener('pointerup', ptrEnd);
+cv.addEventListener('pointercancel', ptrEnd);
+cv.addEventListener('contextmenu', e => e.preventDefault());
+document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+document.addEventListener('gesturestart', e => e.preventDefault());
+document.addEventListener('dblclick', e => e.preventDefault());
+for (const ev of ['touchend', 'pointerup', 'click']) addEventListener(ev, () => audioInit(), { passive: true });   // スマホ：最初に触れたときに音を出せるようにする
+function setTouchUI() { touchUI = true; $id('bPause').hidden = false; try { const lk = screen.orientation && screen.orientation.lock && screen.orientation.lock('portrait'); if (lk && lk.catch) lk.catch(() => {}); } catch (e) { /* 向きを固定できない環境 */ } }
+$id('bPause').onclick = () => (menuOpen ? closePause() : openPause());
+$id('pGo').onclick = () => pauseDo('go');
+$id('pRe').onclick = () => pauseDo('re');
+$id('rRe').onclick = () => again();
+addEventListener('blur', pauseGame);
+document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); });
+for (const type of ['pointerdown', 'keydown']) addEventListener(type, e => { if (!paused || menuOpen) return; resumeGame(); e.stopImmediatePropagation(); if (e.cancelable) e.preventDefault(); }, true);
+
+// ---------------- ボット（確かめ用）：?bot=normal|skill|wander ----------------
+//   normal ふつう：人のように、見てから 0.2〜0.3 秒遅れて動く。先は読む（自分と相手の動きを 8 割くらいの正確さで）。ときどき判断をまちがえる
+//   skill 上手：遅れが小さく、先読みが正確。相手を見てよけ、効率よく回る
+//   wander ふらふら：気ままに曲がる。相手を気にしない
+const bot = { mode: null, fifo: [], lag: 0, target: null, targetAt: -9, junc: null, dec: -1, lastCell: null };
+const LOOK = { normal: 0.5, skill: 0.8 }, DANGER = { normal: 2, skill: 2 };
+function botThink(dt) {
+  if (!bot.mode) return;
+  if (!started) { startSong(); return; }
+  if (songOver || song.burst || song.part === 'finale') { input.want = -1; return; }
+  const lagM = bot.mode !== 'wander';
+  if (lagM && (!(bot.lag > 0) || rnd() < dt * 0.7)) { const [l0, l1] = C.BOT_LAG[bot.mode]; bot.lag = l0 + rnd() * (l1 - l0); }
+  // 自分の先読み：手が動くころには、どこまで進んでいるか
+  const K = lagM ? C.BOT_AHEAD[bot.mode] : 1, ahead = lagM ? hamSpeed() * bot.lag * K : 0;
+  let px = ham.x, py = ham.y;
+  if (ham.dir >= 0) { px += DIRS[ham.dir][0] * ahead; py += DIRS[ham.dir][1] * ahead; }
+  const c = wrapC(Math.floor(px)), r = clamp(Math.floor(py), 0, ROWS - 1);
+  let want = -1;
+  if (ham.dir < 0) want = botDecide(c, r, -1);   // 止まっている：すぐ決める
+  else {   // 進んでいる：次の曲がり角（まっすぐ・後ろ以外に行ける所、または行き止まり）に近づいたら、そこでの向きを決める
+    const [dx, dy] = DIRS[ham.dir];
+    let jc = c, jr = r, n = 0;
+    while (n < COLS) { const opts = [0, 1, 2, 3].filter(d => open(jc, jr, d) && d !== ham.dir && d !== (ham.dir + 2) % 4); if (opts.length || !open(jc, jr, ham.dir)) break; jc = wrapC(jc + dx); jr += dy; n++; }
+    const dist = Math.abs(jc + 0.5 - px) > COLS / 2 ? COLS - Math.abs(jc + 0.5 - px) : Math.hypot(jc + 0.5 - px, jr + 0.5 - py);
+    const key = jc + ',' + jr;
+    if (dist < 0.6) { if (bot.junc !== key) { bot.junc = key; bot.dec = botDecide(jc, jr, ham.dir); } want = bot.dec; }
+    else want = ham.dir;
+  }
+  if (lagM) {   // 反応の遅れ：決めた向きは、lag 秒あとに手に届く
+    bot.fifo.push([clock, want]);
+    while (bot.fifo.length > 1 && bot.fifo[1][0] <= clock - bot.lag) bot.fifo.shift();
+    want = bot.fifo[0][1];
+  }
+  if (want >= 0 && want !== ham.dir) setWant(want); else input.want = -1;
+}
+function botTarget(c, r) {   // 目標の粒：近い粒。いまのエリア（最後に食べた粒のエリア）を終わらせるのを優先。残りが少ないエリアも優先。危ない所は避ける。決めたら、しばらく変えない
+  if (bot.target && !bot.target.eaten && clock - bot.targetAt < (bot.mode === 'skill' ? 2.5 : 1.5)) return bot.target;
+  const d = DIST[r * COLS + c]; if (!d) return null;
+  let best = null, bs = Infinity;
+  const la = ham.lastArea, cur = la >= 0 && la !== undefined && areas[la].left > 0 && !areas[la].restored ? la : -1, skill = bot.mode === 'skill';
+  for (const o of dots) {
+    if (o.eaten) continue;
+    let s = d[o.r * COLS + o.c]; if (s < 0) continue;
+    const a = areas[o.area];
+    if (cur >= 0 && o.area !== cur) s += skill ? 14 : 10;   // いまのエリアを終えてから、次へ（人は、見えているまとまりごとに食べる）
+    if (skill) s += a.left * 0.2;
+    for (const m of mons) if (m.state === 'roam' && Math.hypot(m.x - o.x, m.y - o.y) < 2.5) s += skill ? 8 : 5;
+    s += rnd() * (skill ? 0.5 : 3);
+    if (s < bs) { bs = s; best = o; }
+  }
+  bot.target = best; bot.targetAt = clock; return best;
+}
+function botDecide(c, r, curDir) {   // 曲がり角 (c, r) で、どの向きへ行くか
+  const back = curDir >= 0 ? (curDir + 2) % 4 : -1, opts = [0, 1, 2, 3].filter(d => open(c, r, d));
+  if (!opts.length) return -1;
+  if (bot.mode === 'wander') { const f = opts.filter(d => d !== back); const o = f.length ? f : opts; return o[Math.floor(rnd() * o.length)]; }
+  if (rnd() < C.BOT_MISTAKE[bot.mode]) return opts[Math.floor(rnd() * opts.length)];   // まちがえる
+  // 危なさ：音を消すものの、いまの所と、少し先（LOOK 秒）の所。候補の次のマスから、その所まで DANGER 歩以内なら危ない
+  const look = LOOK[bot.mode], acc = C.BOT_AHEAD[bot.mode], danger = [];
+  for (const m of mons) {
+    if (m.state !== 'roam') continue;
+    const [mdx, mdy] = DIRS[m.dir], f = monSpeed(m) * look * (acc + (1 - acc) * (rnd() * 2 - 1) * 2);
+    danger.push([wrapC(Math.floor(m.x)), Math.floor(m.y)], [wrapC(Math.floor(m.x + mdx * f)), clamp(Math.floor(m.y + mdy * f), 0, ROWS - 1)]);
+  }
+  const prey = feast() ? mons.filter(m => m.state === 'scared') : [];
+  const tg = prey.length ? null : botTarget(c, r);
+  let best = -1, bs = Infinity;
+  for (const d of opts) {
+    const x = wrapC(c + DIRS[d][0]), y = r + DIRS[d][1];
+    let s = 0;
+    if (prey.length) { let bd = Infinity; for (const m of prey) { const v = stepsTo(x, y, wrapC(Math.floor(m.x)), Math.floor(m.y)); if (v >= 0) bd = Math.min(bd, v); } s = bd; }
+    else if (tg) { const v = stepsTo(x, y, tg.c, tg.r); s = v < 0 ? 99 : v; }
+    else s = rnd() * 3;
+    if (dotMap.has(y * COLS + x)) s -= 1.2;   // 進む先に粒があれば、食べながら行く
+    if (bot.mode === 'skill') { let n = 0, cx = x, cy = y; for (let k = 0; k < 6 && open(cx, cy, d); k++) { cx = wrapC(cx + DIRS[d][0]); cy += DIRS[d][1]; if (dotMap.has(cy * COLS + cx)) n++; } s -= 0.5 * Math.min(3, n); }   // 上手：その先の通路に粒が多い向き
+    for (const [dc, dr] of danger) { const v = passable(dc, dr) ? stepsTo(x, y, dc, dr) : -1; if (v >= 0 && v <= DANGER[bot.mode]) s += 40 - v * 8; }
+    if (d === back) s += 2;   // 戻るのは、少しいや
+    s += rnd() * 0.3;
+    if (s < bs) { bs = s; best = d; }
+  }
+  return best;
+}
+// 画面を使わずに、1曲を遊ばせる（確かめ用。ボットの種類 mode。until：'chorus' サビまで／'end' 結果まで）
+function simulate(mode = 'normal', opts = {}) {
+  bot.mode = mode; bot.fifo = []; bot.lag = 0; bot.target = null; bot.junc = null;
+  reset(); startSong();
+  const STEP = 1 / 60, until = opts.until || 'end', max = (opts.maxSec || 400) * 60;
+  for (let i = 0; i < max && !songOver; i++) {
+    if (typeof globalThis.__simT === 'number') globalThis.__simT += STEP;
+    if (mus.timer && typeof musicTick === 'function') musicTick();
+    botThink(STEP); update(STEP);
+    if (until === 'chorus' && song.part === 'chorus') break;
+  }
+  const lv = song.bloom ? song.bloom.level : buds.got >= budN() ? 'full' : buds.got >= budClear() ? 'clear' : 'part';
+  // 粒の音：和音とぶつかった割合・ノリからずれた割合・拍の頭で和音の音でない割合
+  let clash = 0, off = 0, strongBad = 0;
+  for (const n of LOG.notes) {
+    const ch = stepChord(n.k), pc = ((n.m % 12) + 12) % 12, onChord = ch.pcs.includes(pc);
+    if (!onChord && ch.pcs.some(c => { const d = ((pc - c) % 12 + 12) % 12; return d === 1 || d === 11; })) clash++;
+    if (Math.abs(n.t - off16(n.k)) > 0.002 || n.k % eatGrid() !== 0) off++;
+    if (n.k % 4 === 0 && !onChord) strongBad++;
+  }
+  return { mode, lv, buds: buds.got, areas: LOG.areas.map(a => a.t), hits: ham.hits, hitT: LOG.hits.map(h => h.t), spills: LOG.spills, picked: LOG.picked, monEat: LOG.monEat, pouch: song.burstN, eaten: dots.filter(d => d.eaten).length, chorusEaten: song.chorusEaten,
+    notes: LOG.notes.length, clash, off, strongBad, songT: +song.t.toFixed(1), part: song.part, charge: charge.log, bloom: song.bloom && { level: song.bloom.level, tonicAt: song.bloom.tonicAt, start: song.bloom.start, end: song.bloom.end } };
+}
+
+// ---------------- ループ ----------------
+if (touchUI) setTouchUI();
+layout();
+reset();
+if (BOT) { bot.mode = BOT; if (!qs.has('wait')) startSong(); }
+let last = performance.now(), acc = 0, slowFor = 0, fps = 60;
+let freeze = false;   // ?at=秒：曲のその時刻で止めて、画面写真を撮る（確かめ用）
+const STOP_AT = qs.has('at') ? +qs.get('at') : null;
+const STEP = 1 / 60;
+function frame(now) {
+  const real = Math.min(0.25, (now - last) / 1000);
+  last = now;
+  if (!paused) {
+    acc += Math.min(0.1, real) * SIM_SPEED;
+    if (real > 0) fps = lerp(fps, 1 / real, 0.05);
+    if (!lowFx && !document.hidden && fps < C.LIGHT_FX_FPS && started) { if ((slowFor += real) > 2) { lowFx = true; layout(); } } else slowFor = 0;
+    for (let n = 0; acc >= STEP && n < 3000 && !freeze; n++) { if (BOT) botThink(STEP); update(STEP); acc -= STEP; if (STOP_AT !== null && song.t >= STOP_AT) freeze = true; }
+  } else acc = 0;
+  render();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
