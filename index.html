@@ -365,21 +365,13 @@ const CONFIG = {
   SHAKE_BIG_COOLDOWN: 5,    //   ただし前に揺れてからこの秒数のあいだは揺らさない（続けて揺れないように）
   SHAKE_UNLOCK: 3,          // 新しく食べられるようになった瞬間の揺れ（px）
   SHAKE_BURST: 7,           // 曲の締めで、頬袋の中身を噴き出したときの揺れ（px、いちばん大きい）
-  // 締めの「ため」（L キーで入り切り。表示は「ためON」「ためOFF」）：締め（サビのあと、噴き出す前のテーマの所）に入ったら合図を出す
-  //   締めに入ったら、ハムスターは自動でその場に止まる。まわりを少し暗くして、ハムスターだけを明るくする（23回目）
-  //   クリック（スマホはタップ。スペースも）するたびに、ためが1段上がる（24回目。長押しのためは、やめた）
-  //     段が上がるのは、押した次の8分音符の頭。1つの8分音符で上がるのは1段だけ（速く連打しても、リズムに乗って「グン、グン」と上がる）
-  //     段が上がるたびに、カメラが一段ずつ「グン」と寄り、ほっぺが一段ふくらみ、ためる音が一段上がる
-  //     締めに入ったときに押していた指・マウス・スペースは、ためにも、噴き出すのにも数えない（離しても何も起きない）
-  //   CHARGE_STEPS 段でマックス。マックスになったら、少なくとも1拍は、ぷるぷる震えて光る（この間に押しても、まだ出ない）
-  //     その1拍のあとに、もう1回押すと、次の拍の頭で、カメラが勢いよく引いて、どばーっと噴き出す（テーマの着地も、この瞬間）
-  //   待っている間は、締めの、着地の手前の小節をくり返す
-  //   CHARGE_AUTO 拍、1回も押さなければ（途中でやめたときは、最後に押してから）、自動で残りをためて、マックスで1拍こらえて噴き出す
+  // 締めの「ため」（26回目から、全部自動。押しても何も起きない。L キーの入り切りは、なくした）
+  //   締めに入ったら、ハムスターは木の前へ跳んでいく（1小節目）。着いたら、着地（どばー）の2小節前から、
+  //   拍の頭ごとに1段ずつ、ほっぺがふくらみ、カメラが「グン」と寄り、ためる音が上がる（CHARGE_STEPS 段）
+  //   最後の1拍（いちばん上の段）は、ぷるぷる震える。次の小節の頭（着地）で、カメラが勢いよく引いて、どばーっと噴き出す
   //   宝の数は、ためた段数では変えない（頬袋の中身の数のまま）
-  CHARGE: true,
-  CHARGE_STEPS: 8,
-  CHARGE_AUTO: 8,           // 押さなかったとき・途中でやめたときに、自動でためるまで（拍。2小節）
-  CHARGE_MAX_WAIT: 16,      // マックスで押さないときに、待つ長さ（拍。4小節）。過ぎたら噴き出す（詰まないように）
+  CHARGE_STEPS: 8,          // ためる段数（1拍に1段。8段で2小節）
+  FINALE_LEAD: 3,           // 締めに入ってから着地（どばー）まで（小節）：1小節目で木の前へ、2・3小節目で自動のため
   CHARGE_ZOOM: 0.15,        // 1段ためるごとに、カメラが寄る分（いまの見え方の何倍ふえるか。8段で 2.2 倍）
   CHARGE_SHAKE: 13,         // マックスまでためて噴き出したときの揺れ（px）。ためた段数が少ないほど小さい（このときだけ、強く1回）
   SHAKE_DECAY: 12,          // 揺れが収まる速さ（px/秒）
@@ -752,7 +744,7 @@ const PARTS = [['intro', 'イントロ'], ['a', 'Aメロ'], ['b', 'Bメロ'], ['
 let S = SONGS[0], PLAN = [], SONG_END = 0;
 const beatSec = () => 60 / S.bpm, eighth = () => 30 / S.bpm, sixteenth = () => 15 / S.bpm, barSec = () => 240 / S.bpm;
 const themeLen = () => themeRhythm().reduce((a, b) => a + b, 0);   // 締めで、テーマの最初の音から着地までの長さ（16分音符）
-const finaleLead = () => Math.ceil(themeLen() / 16);                  // 締めの何小節目の頭で着地するか
+const finaleLead = () => C.FINALE_LEAD;                                 // 締めの何小節目の頭で着地（どばー）するか（26回目：自動のための分）
 function makePlan() {   // 場面ごとの小節の数：テンポに合わせて、SONG_SEC の秒数に近くなるように（どの曲も1曲が約2分になる）
   let at = 0;
   PLAN = PARTS.map(([k, name]) => {
@@ -837,11 +829,8 @@ function songTick(dt) {
     specialTick();                                    // 特別な食べ物が、空から降ってくる
   }
   if (song.part === 'finale' && !song.burst) {
-    const land = landingStep() * sixteenth();         // 小節の頭なので、はね具合に関係なく
-    if (!song.themeSent && song.t >= land - themeLen() * sixteenth() - 0.05) song.themeSent = true;   // テーマは、噴き出したあとの花で鳴らす（25回目）
-    if (C.CHARGE) chargeTick(dt);                     // ため：トントン押してためて、ためきったら、もう1回押すと噴き出す（待っている間は、着地の手前の小節をくり返す）
-    else ham.shiver = song.t >= land - beatSec() ? 1 : 0;  // ためOFF：着地の直前の拍に、ぷるぷる震えて、ためる
-    if (song.t >= land && (!C.CHARGE || charge.state === 'go')) burst();   // 主音の着地と同時に、頬袋の中身を全部噴き出す
+    chargeTick(dt);                                   // ため：木の前で、2小節かけて自動で（26回目）
+    if (song.t >= landT()) burst();                   // 着地（小節の頭）で、頬袋の中身を全部噴き出す
   }
 }
 // サビ：広場に食べ物が降ってくる（宝石の列・かたまりも。降ってきた物も、列はテーマ、かたまりは和音で鳴る。巣の山の上には降らない）
@@ -900,101 +889,28 @@ function spawnSpecial(type) {   // ハムスターのまわり（ほかの物と
   }
   return null;
 }
-// 締めの「ため」（24回目：タップでふくらませる）
-//   state：'off' まだ／'ready' 合図を出して、押すのを待っている／'tap' 押してためている／'auto' 自動でためている／'go' 噴き出す（次の拍の頭）／'done' 噴き出した
-//   lv：ためた段数（0〜CHARGE_STEPS）。押すたびに、押した次の8分音符の頭で1段（1つの8分音符で上がるのは1段だけ）
-//   taps：まだ数えていない、押した時刻（曲の時計）／stepAt：次に1段上がる時刻（曲の時計。予約がなければ null）
-//   idle：最後に押してから（まだ押していなければ、締めに入ってから）の秒／maxT：マックスになってからの秒（まだなら -1）
-const charge = { state: 'off', lv: 0, taps: [], stepAt: null, idle: 0, maxT: -1, prevT: 0, schedT: -9, pop: 0, log: null, spot: 0 };
-const chargeLive = () => C.CHARGE && song.part === 'finale' && !song.burst && !songOver;
-const chargeHolding = () => charge.state === 'tap' || charge.state === 'auto' || charge.state === 'go';
+// 締めの「ため」（26回目：全部自動）
+//   state：'off' まだ／'wait' 締めに入った（木の前へ）／'auto' ためている／'done' 噴き出した
+//   lv：ためた段数（0〜CHARGE_STEPS）。着地の CHARGE_STEPS 拍前から、拍の頭ごとに1段。schedK：音を予約した段
+const charge = { state: 'off', lv: 0, schedK: 0, pop: 0, log: null, spot: 0 };
+const chargeLive = () => song.part === 'finale' && !song.burst && !songOver;
+const chargeHolding = () => charge.state === 'auto';
 const chargeMax = () => charge.lv >= C.CHARGE_STEPS;
-const chargeReady = () => chargeMax() && charge.maxT >= beatSec() - 1e-6;   // マックスで1拍こらえた：次に押すと噴き出す
-function chargeReset() { Object.assign(charge, { state: 'off', lv: 0, taps: [], stepAt: null, idle: 0, maxT: -1, prevT: 0, schedT: -9, pop: 0, log: null, spot: 0 }); bot.tapAt = 0; }
-function chargeTap() {   // クリック・タップ・スペース（ボットも）：押した瞬間だけを数える（締めに入る前から押していた指は、数えない）
-  if (!chargeLive() || paused || !['ready', 'tap', 'auto'].includes(charge.state)) return;
-  charge.taps.push(musicLive() ? AC.currentTime - mus.t0 : song.t);
-}
-// 曲の時計を d 秒ずらす（くり返し：-1小節 ／ 噴き出すとき：着地まで飛ぶ）。音楽の刻みも、覚えている刻みの番号も、いっしょにずらす
-function shiftSong(d) {
-  const dk = Math.round(d / sixteenth());
-  if (musicLive()) { mus.t0 -= d; if (mus.timer) mus.step += dk; for (const k in lanes) if (!k.endsWith(':s')) lanes[k] += dk; }
-  song.t += d; charge.prevT += d;
-  if (charge.stepAt !== null) charge.stepAt += d;
-  charge.taps = charge.taps.map(x => x + d);
-  if (charge.log) charge.log.shifts.push(+d.toFixed(3));
-}
-const landT = () => landingStep() * sixteenth();   // 締めで、テーマが主音に着地する時刻（曲の時計）
-function chargeLoop() {   // 噴き出すまでは、着地の手前の1小節をくり返す（音楽の刻みが着地を予約する前に）
-  if (!chargeLive() || charge.state === 'go') return;
-  const look = musicLive() && mus.timer ? 0.19 : 0;
-  while (song.t >= landT() - look) shiftSong(-barSec());
-}
-function chargeGo() {   // 噴き出す：次の拍の頭（音楽の刻みがまだ予約していない所）で、着地して噴き出すように、曲の時計を進める
-  const bt = beatSec(), margin = musicLive() && mus.timer ? 0.17 : 0;
-  let tb = Math.ceil(song.t / bt - 1e-6) * bt;
-  if (tb - song.t < margin) tb += bt;
-  charge.state = 'go'; charge.taps = [];
-  if (charge.log) { charge.log.release = { at: +clock.toFixed(3), audio: AC ? +AC.currentTime.toFixed(3) : null, lv: charge.lv, toLand: +(tb - song.t).toFixed(3) }; }
-  const d = landT() - tb;
-  if (d > 1e-6) shiftSong(d);
-}
-function chargeE8(t) {   // 曲の時計で、t より後の、最初の8分音符の頭（はねる曲は、はねた位置）
-  let k = (Math.ceil(t / sixteenth() / 2 - 1e-6) - 1) * 2;
-  while (off16(k) <= t + 1e-4) k += 2;
-  return off16(k);
-}
-function chargeStep(tt) {   // 1段上がるのを、tt（押した時刻）の次の8分音符の頭に予約して、音も先に予約する
-  let at = chargeE8(tt);
-  if (at < song.t + 0.012) at = chargeE8(song.t + 0.012);   // もう過ぎていたら（とても近ければ）、その次
-  charge.stepAt = at;
-  if (AC && live()) chargeSound(AC.currentTime + (at - song.t), charge.lv + 1, false);
-}
+function chargeReset() { Object.assign(charge, { state: 'off', lv: 0, schedK: 0, pop: 0, log: null, spot: 0 }); }
+const landT = () => landingStep() * sixteenth();   // 締めで、着地（どばー）する時刻（曲の時計。小節の頭）
 function chargeTick(dt) {
-  if (!chargeLive()) { if (charge.state !== 'off' && charge.state !== 'done' && song.burst) charge.state = 'done'; return; }
-  const bt = beatSec();
-  if (charge.state === 'off') {   // 締めに入った：合図を出す（いま押している指は、数えない）
-    Object.assign(charge, { state: 'ready', lv: 0, taps: [], stepAt: null, idle: 0, maxT: -1, prevT: song.t, schedT: -9, pop: 0 });
-    charge.log = { start: +clock.toFixed(3), startT: +song.t.toFixed(3), presses: [], steps: [], shifts: [], release: null, land: null, burst: null, auto: false, autoAt: null };
+  if (!chargeLive()) { if (charge.state !== 'off' && song.burst) charge.state = 'done'; return; }
+  const bt = beatSec(), t0 = landT() - C.CHARGE_STEPS * bt;   // ため始め：着地の2小節前（拍の頭）
+  if (charge.state === 'off') { charge.state = 'wait'; charge.log = { start: +clock.toFixed(3), startT: +song.t.toFixed(3), steps: [], land: null, burst: null }; }
+  const now = song.t >= t0 - 1e-4 ? Math.min(C.CHARGE_STEPS, Math.floor((song.t - t0) / bt + 1e-6) + 1) : 0;   // いまの段
+  const k = now + 1, at = t0 + now * bt;                                     // 次の段の音を、拍の頭の少し前に予約する
+  if (k <= C.CHARGE_STEPS && k > charge.schedK && at - song.t < 0.08) { charge.schedK = k; if (AC && live()) chargeSound(AC.currentTime + Math.max(0, at - song.t), k, false); }
+  if (now > charge.lv) {                             // 拍の頭：カメラが「グン」と寄って、ほっぺが一段ふくらむ。伴奏も、いちばん厚いまま
+    charge.lv = now; charge.state = 'auto'; charge.pop = 1; drive.lv = 1; drive.at = audioNow();
+    charge.log.steps.push({ lv: now, at: +clock.toFixed(3), songT: +song.t.toFixed(3), audio: AC ? +AC.currentTime.toFixed(3) : null });
   }
-  const adv = song.t - charge.prevT;
-  if (adv > 0 && adv < bt * 1.5) { charge.idle += adv; if (charge.maxT >= 0) charge.maxT += adv; }   // 曲の時計が進んだ分（くり返し・飛ぶときは数えない）
-  // 予約した1段が来た：カメラが「グン」と寄って、ほっぺが一段ふくらむ
-  if (charge.stepAt !== null && song.t >= charge.stepAt - 1e-4) {
-    const late = song.t - charge.stepAt;
-    charge.stepAt = null; charge.lv = Math.min(C.CHARGE_STEPS, charge.lv + 1); charge.pop = 1;
-    charge.log.steps.push({ lv: charge.lv, at: +clock.toFixed(3), audio: AC ? +AC.currentTime.toFixed(3) : null, how: charge.state });
-    if (chargeMax()) charge.maxT = Math.max(0, late);
-  }
-  // 押した
-  for (const tt of charge.taps.splice(0)) {
-    charge.log.presses.push({ at: +clock.toFixed(3), lv: charge.lv });
-    if (charge.state !== 'tap') charge.state = 'tap';   // 自動でためている途中で押したら、そこから自分で
-    charge.idle = 0;
-    if (chargeMax()) { if (chargeReady()) { chargeGo(); break; } continue; }   // マックス：1拍こらえる間は、押しても、まだ出ない
-    if (charge.stepAt === null) chargeStep(tt);       // 次の8分音符の頭に、もう1段を予約していたら、それだけ（1つの8分音符で1段）
-  }
-  // 自動で進む道
-  if (charge.state === 'ready' && charge.idle >= C.CHARGE_AUTO * bt - 1e-6) { charge.state = 'auto'; charge.log.auto = true; charge.log.autoAt = +clock.toFixed(3); }   // 2小節、1回も押さない
-  if (charge.state === 'tap' && !chargeMax() && charge.idle >= C.CHARGE_AUTO * bt - 1e-6) { charge.state = 'auto'; charge.log.auto = true; charge.log.autoAt = +clock.toFixed(3); }   // 途中でやめて2小節
-  if (charge.state === 'tap' && chargeMax() && charge.idle >= C.CHARGE_MAX_WAIT * bt - 1e-6) chargeGo();   // マックスで、とても長く押さない
-  if (charge.state === 'auto') {                      // 自動：8分音符ごとに1段ずつためて、マックスで1拍こらえて、噴き出す
-    if (!chargeMax() && charge.stepAt === null) chargeStep(song.t);
-    if (chargeReady()) chargeGo();
-  }
-  // マックス：拍の頭ごとに、こらえる音（先に予約する）
-  const toBeat = Math.ceil(song.t / bt - 1e-6) * bt - song.t;
-  if ((charge.state === 'tap' || charge.state === 'auto') && chargeMax() && toBeat < 0.06 && Math.abs(charge.schedT - (song.t + toBeat)) > 1e-3) {
-    charge.schedT = song.t + toBeat;
-    if (AC && live()) chargeSound(AC.currentTime + toBeat, C.CHARGE_STEPS, true);
-  }
-  // 拍の頭をまたいだ：ためている間は、伴奏もいちばん厚いまま（押していることも、自分の演奏）
-  const b0 = Math.floor(charge.prevT / bt + 1e-6), b1 = Math.floor(song.t / bt + 1e-6);
-  if (b1 > b0 && adv > 0 && adv < bt * 1.5 && (charge.state === 'tap' || charge.state === 'auto')) { drive.lv = 1; drive.at = audioNow(); }
-  charge.prevT = song.t;
   charge.pop = Math.max(0, charge.pop - dt / 0.18);
-  ham.shiver = chargeHolding() && chargeMax() ? 1 : 0;   // マックス：小刻みにふるえる（もう出る！）
-  chargeLoop();
+  ham.shiver = chargeMax() ? 1 : 0;                  // 最後の1拍：小刻みにふるえる（もう出る！）
 }
 function chargeSound(t, lv, max) {   // ためる音：1段ごとに上がる（「ため」の「シューッ」・小太鼓・和音を上がる音）。マックスでは、拍ごとに、こらえる音
   const bt = beatSec(), b = curBus, u = lv * 4 / C.CHARGE_STEPS; curBus = null;   // u：前の4段の目盛りで（0.5〜4。8段に分けた）
@@ -1009,9 +925,9 @@ function chargeSound(t, lv, max) {   // ためる音：1段ごとに上がる（
 }
 // 締め：主音の着地と同時に、頬袋の中身を全部、噴水や花火のように噴き出す。放物線を描いて巣（スタート地点）に降り注ぎ、宝の山に積もる
 function burst() {
-  const clv = C.CHARGE && charge.state !== 'off' ? charge.lv : -1, pull = clv >= 0 ? 0.35 + 0.65 * clv / C.CHARGE_STEPS : 0;   // ためた段数（ためOFF：-1）
+  const clv = charge.lv, pull = 0.35 + 0.65 * clv / C.CHARGE_STEPS;   // ためた段数
   if (charge.log) charge.log.burst = { at: +clock.toFixed(3), audio: AC ? +AC.currentTime.toFixed(3) : null, songT: +song.t.toFixed(3), landT: +landT().toFixed(3), lv: clv };
-  if (clv >= 0) { charge.state = 'done'; cam.pv -= 18 * pull; }   // カメラが勢いよく引く
+  charge.state = 'done'; cam.pv -= 18 * pull;     // カメラが勢いよく引く
   if (!musicLive() && AC && live()) burstHit(AC.currentTime);   // 効果音モード：ここで「ジャン」と「ぽんっ」（音楽モードは、音楽の刻みで）
   ham.shiver = 0;
   song.burst = true;
@@ -2518,8 +2434,8 @@ function update(dt) {
 //   止まっている・ゆっくり小さく動いているときは、ハムスターが真ん中の CAM_DEADZONE の中にいる間は画面を動かさない
 //   体が育つほど引いていき、サビと締めでは広場全体が見えるまで引く
 function updateCamera(dt) {
-  charge.spot += ((C.CHARGE && chargeLive() ? 1 : 0) - charge.spot) * (1 - Math.exp(-dt * (chargeLive() ? 5 : 2.5)));   // 締め：まわりを暗くする具合（0〜1）
-  const pt = C.CHARGE && chargeHolding() && chargeLive() ? charge.lv : 0;   // ため：ためた段数だけ寄る（拍の頭で一段ずつ、ばねで「グン」）
+  charge.spot += ((chargeLive() ? 1 : 0) - charge.spot) * (1 - Math.exp(-dt * (chargeLive() ? 5 : 2.5)));   // 締め：まわりを暗くする具合（0〜1）
+  const pt = chargeHolding() && chargeLive() ? charge.lv : 0;   // ため：ためた段数だけ寄る（拍の頭で一段ずつ、ばねで「グン」）
   cam.pv += ((pt - cam.push) * 900 - cam.pv * 38) * dt; cam.push += cam.pv * dt;
   const wide = feast() || song.burst || songOver ? 1 : 0;
   cam.wide += (wide - cam.wide) * (1 - Math.exp(-dt * 1.2));
@@ -2640,7 +2556,7 @@ function render() {
   drawGlowRows();                            // 光る列（その下に、光る糸）
   drawFoods();
   drawPals();                                // バンドの仲間（ついて歩く仲間は、ハムスターの後ろ）
-  if (C.CHARGE && chargeLive()) drawChargeGlow();   // ため：ハムスターが光る
+  if (chargeLive()) drawChargeGlow();        // ため：ハムスターが光る
   drawHamster();
   drawFlyers();
   for (const m of motes) {                  // 体・歯が伸びた：オレンジ（体）・青（歯）の小さな光が上っていく
@@ -2709,7 +2625,7 @@ function render() {
     return;
   }
   if (!started && !songOver && !helpOpen) drawStartHint();
-  else if (C.CHARGE && charge.spot > 0.01 && !menuOpen && !helpOpen) { drawFinaleSpot(); if (chargeLive()) drawChargeHint(); }   // ため：まわりを暗く。押す合図と、ためた段数
+  else if (charge.spot > 0.01 && !menuOpen && !helpOpen) drawFinaleSpot();   // ため：まわりを暗く。押す合図と、ためた段数
   else if (touchUI && (!AC || AC.state !== 'running') && !songOver) drawSpeaker(ax + aw / 2, ay + ah - 34, true);   // スマホ：画面に触れるまで音を出せない
 }
 // 上の目盛り：果物（体）・宝石（歯）の絵と目盛り、★の目盛り。文字は曲名と巣の数だけ
@@ -2906,39 +2822,6 @@ function drawFinaleSpot() {   // 締め：まわりを少し暗くして、木�
   g.addColorStop(0, 'rgba(12,8,24,0)'); g.addColorStop(1, `rgba(12,8,24,${0.55 * charge.spot})`);
   ctx.fillStyle = g; ctx.fillRect(view.x0, view.y0, view.w, view.h);
   ctx.restore();
-}
-function drawChargeHint() {   // ため：ハムスターのまわりに大きな輪。押していない間は、拍に合わせて脈打つ輪と、トントン押す指の絵（文字なし）。ためている間は、輪が8つに分かれて、たまった所が光る
-  const VS = view.VS, hx = view.ox + ham.x * VS, hy = view.oy + ham.y * VS, rr = ham.r * VS, n = C.CHARGE_STEPS, beat = Math.pow(1 - beatPhase(), 2);
-  const R = Math.min(rr * 2.75 + 18, Math.min(view.w, view.h) * 0.46);   // ほっぺがいちばん大きいときの、すぐ外（寄ったときも、画面の中に）
-  if (charge.state === 'ready' && charge.lv === 0) {   // まだ押していない：大きな輪が、拍に合わせて脈打つ
-    const pr = R * (1 + 0.07 * beat);
-    ctx.strokeStyle = `rgba(255,240,150,${0.55 + 0.45 * beat})`; ctx.lineWidth = 6 + 5 * beat; ctx.beginPath(); ctx.arc(hx, hy, pr, 0, TAU); ctx.stroke();
-    ctx.strokeStyle = `rgba(255,255,255,${0.5 * beat})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(hx, hy, pr + 14 + 18 * (1 - beat), 0, TAU); ctx.stroke();
-  } else {
-    const full = chargeMax(), go = chargeReady();
-    for (let i = 0; i < n; i++) {                    // 段数の輪（8つに分けて、たまった所が光る。マックスは、ちかちか）
-      const a0 = -Math.PI / 2 + i * TAU / n + 0.05, a1 = a0 + TAU / n - 0.1, on = i < charge.lv, last = on && i === charge.lv - 1;
-      ctx.strokeStyle = on ? (full ? `rgba(255,240,120,${0.7 + 0.3 * Math.sin(clock * 30)})` : 'rgba(255,225,90,0.95)') : 'rgba(255,255,255,0.4)';
-      ctx.lineWidth = on ? 11 + (last ? 7 * charge.pop : 0) : 6; ctx.lineCap = 'round'; ctx.beginPath(); ctx.arc(hx, hy, R, a0, a1); ctx.stroke(); ctx.lineCap = 'butt';
-    }
-    if (go) {                                        // 1拍こらえた：輪の外が、拍に合わせて大きく光る（いま押せば出る）
-      ctx.strokeStyle = `rgba(255,250,200,${0.35 + 0.65 * beat})`; ctx.lineWidth = 4 + 6 * beat; ctx.beginPath(); ctx.arc(hx, hy, R + 16 + 10 * beat, 0, TAU); ctx.stroke();
-    }
-  }
-  // トントン押す指の絵：まだ押していないとき・途中で1小節押していないとき・マックスで1拍こらえたあと（もう1回押す）
-  const want = charge.state === 'ready' || (charge.state === 'tap' && (chargeReady() || (!chargeMax() && charge.idle >= beatSec() * 4)));
-  if (!want) return;
-  const ph = (performance.now() / 1000) % 0.9, taps = [0, 0.24], fx = hx + R * 0.72, fy = hy + R * 0.62, s = touchUI ? 1.5 : 1.6;
-  let down = false;
-  for (const t0 of taps) {
-    const q = ph - t0;
-    if (q >= 0 && q < 0.1) down = true;
-    if (q >= 0 && q < 0.5) {                         // 押した所から、輪が広がる
-      const e = q / 0.5;
-      ctx.strokeStyle = `rgba(255,240,150,${0.9 * (1 - e)})`; ctx.lineWidth = 5 * (1 - e) + 1.5; ctx.beginPath(); ctx.arc(fx, fy, 12 + 34 * e, 0, TAU); ctx.stroke();
-    }
-  }
-  drawHand(fx, fy, s, down);
 }
 function drawStartHint() {
   const VS = view.VS, hx = view.ox + ham.x * VS, hy = view.oy + ham.y * VS, ph = (performance.now() / 1000) % 1.8, rr = ham.r * VS;
@@ -3536,17 +3419,15 @@ function helpHTML() {
     '暗い物は、まだ食べられない。当たると吹き出しに、足りない方の絵が出る（果物＝大きさ、宝石＝歯）',
     C.PALS ? '広場で待っているバンドの仲間に会いに行くと、その仲間の楽器が加わって、後ろをついて歩く（果物の道をたどると会える。画面の外にいるときは、端に矢印）' : '体と歯が育つと、下のバンドの仲間が1人ずつ加わる（オレンジ＝果物で育つ楽器、青＝宝石で育つ楽器）',
     '「ため」のあとのサビは食べ放題。頬袋にためた分が、締めで噴き出す宝になる（宝は巣に足される。結果の画面の端の★：' + C.STARS.map((t, i) => `★${i + 1}：${t}個`).join('、') + '）',
-    C.CHARGE ? '締めは、木の前に移る。トントン押すたびにふくらみ、ためきったら、もう1回押すと、木に向かって噴き出す。光ったつぼみが、拍に合わせて花になって、テーマを鳴らす'
-      : '締めは、木の前に移って、木に向かって噴き出す。光ったつぼみが、拍に合わせて花になって、テーマを鳴らす',
+    '締めは、木の前に移って、2小節かけて自動でためて（拍ごとに、ほっぺがふくらむ）、木に向かって噴き出す。光ったつぼみが、拍に合わせて花になって、テーマを鳴らす',
     '宝石の列は、列ごとに違うフレーズになる（仲間がいれば、その仲間の楽器で）。かたまりは和音。果物は流れに並んでいて、1つの流れがベースのフレーズになり、食べ切ると「ドン」。テーマのメロディは、締めで咲いた花が鳴らす',
     '食べている間だけバンドが厚くなる（食べるのをやめると、1小節で薄くなる）。サビで空から降る特別な食べ物は、サビに入ったときの体と歯の育ち方で変わる（体が大きい＝大きな実、歯が硬い＝結晶、両方＝両方と虹の実）'];
   const keys = touchUI ? ['指を置いた方へ走る', '「スタートへ」：スタート地点に戻る', '「曲を最初から」：2回押すと、この曲を最初から', '「音量」：音量', '⏸：一時停止（つづける・最初から・曲をえらぶ）',
-    C.CHARGE ? '締めは、木の前に移る。トントン押すたびにふくらみ、ためきったら、もう1回押すと、木に向かって噴き出す' : '締め：木の前で、自動で噴き出す（ためOFF）'] :
+    '締め：見ているだけ（木の前で、自動でためて、木に向かって噴き出す）'] :
     [`${k('W A S D')} ${k('矢印')}：移動　マウス：押している間、その方へ走る`, `${k('R')}：スタート地点へ（長押しで、この曲を最初から）`,
      `${k('M')}：食べ方（いま ${eatMode}。A＝Space で食べる、B＝触れたら食べる）`, `${k('N')}：音楽／効果音（いま ${soundMode === 'music' ? '音楽' : '効果音'}）`,
      `${k('Esc')}：一時停止（つづける・最初から・曲をえらぶ）`, `${k('K')}：当たった物が動く（いま ${on(C.PUSH)}）　${k('J')}：かたまりの連鎖の吸い込み（いま ${on(C.CHAIN)}）`,
      `${k('V')}：演奏（いま ${C.PLAY ? '演奏ON' : '演奏OFF'}。食べている間だけ伴奏が厚くなる・鳴った音が光る）　${k('B')}：サビの特別な食べ物（いま ${C.SPECIAL ? '特別ON' : '特別OFF'}）`,
-     `${k('L')}：締めのため（いま ${C.CHARGE ? 'ためON。締めは、木の前に移る。クリックかスペースをトントン押すたびにふくらみ、ためきったら、もう1回押すと、木に向かって噴き出す' : 'ためOFF。締めで自動で噴き出す'}）`,
      `${k('P')}：バンドの仲間（いま ${C.PALS ? '仲間ON。会いに行くと楽器が増える' : '仲間OFF。体と歯が育つと楽器が増える'}）`,
      `${k('-')} ${k('=')}：全体の音量　${k('[')} ${k(']')}：音楽　${k(',')} ${k('.')}：効果音`, `${k('H')}：この説明（${k('Esc')} でもとじる）`];
   return '<h4>どうなればいい？</h4><ul>' + rules.map(r => `<li>${r}</li>`).join('') + '</ul><h4>操作</h4><ul>' + keys.map(r => `<li>${r}</li>`).join('') + '</ul>';
@@ -3610,11 +3491,10 @@ document.getElementById('rWipe').onclick = () => {    // 保存を消して1曲�
 let paused = false, resumedAt = -1e9;
 function pauseGame() {
   if (paused || !C.PAUSE_ON_BLUR) return;
-  paused = true; chargeHoldPause();
+  paused = true;
   input.up = input.down = input.left = input.right = input.eat = input.rHeld = false; ptr.down = false; ptr.id = null;
   if (AC && AC.state === 'running') AC.suspend().catch(() => {});
 }
-function chargeHoldPause() { charge.taps = []; if (charge.state === 'ready' || charge.state === 'tap') charge.idle = 0; }   // 一時停止：ためた段数のまま。自動になるまでの時間は、数え直す
 function resumeGame() {
   if (!paused) return;
   paused = false; resumedAt = performance.now();
@@ -3632,7 +3512,6 @@ function openPause() {
   if (menuOpen || songOver || helpOpen) return;
   menuOpen = true; menuFocus = 0;
   if (!paused) { paused = true; input.up = input.down = input.left = input.right = input.eat = input.rHeld = false; ptr.down = false; ptr.id = null; audioHush(); }
-  chargeHoldPause();
   renderPause(); $id('pause').hidden = false;
 }
 function closePause() {   // 止めた所から、つづける
@@ -3695,7 +3574,7 @@ addEventListener('keydown', e => {
   if (k) {
     e.preventDefault();
     input[k] = true;
-    if (k === 'eat' && !e.repeat) { input.eatQueued = true; started = true; if (C.CHARGE && chargeLive()) chargeTap(); }   // スペース：締めの「ため」も
+    if (k === 'eat' && !e.repeat) { input.eatQueued = true; started = true; }
   }
   if (e.code === 'KeyR' && !e.repeat && !songOver) { input.rHeld = true; input.rTime = 0; }
   if (e.code === 'KeyN' && !e.repeat) {
@@ -3708,10 +3587,6 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyV' && !e.repeat) togglePlay();      // 演奏：自分が鳴らしているとわかる仕組み
   if (e.code === 'KeyP' && !e.repeat) togglePals();      // バンドの仲間
   if (e.code === 'KeyB' && !e.repeat) { C.SPECIAL = !C.SPECIAL; say(C.SPECIAL ? '特別ON' : '特別OFF', '#ffffff', 3); }   // サビの特別な食べ物
-  if (e.code === 'KeyL' && !e.repeat) {               // 締めの「ため」（OFF：今までどおり、着地で自動で噴き出す）
-    C.CHARGE = !C.CHARGE; say(C.CHARGE ? 'ためON' : 'ためOFF', '#ffffff', 3);
-    if (!C.CHARGE && chargeHolding() && song.part === 'finale' && !song.burst) charge.state = 'off';
-  }
   if (e.code === 'KeyM' && !e.repeat && !touchUI) {   // スマホは食べ方Bで固定
     eatMode = eatMode === 'A' ? 'B' : 'A';
     say(eatMode === 'A' ? '食べ方A' : '食べ方B', '#ffffff', 3);
@@ -3733,7 +3608,6 @@ cv.addEventListener('pointerdown', e => {
   audioInit();
   if (e.pointerType === 'touch' && !touchUI) setTouchUI();
   if (e.pointerType === 'mouse' && e.button !== 0) return;
-  if (C.CHARGE && chargeLive()) chargeTap();          // 締めの「ため」：押すたびに1段（ほかの指で押したままでも、数える）
   if (ptr.id !== null && ptr.down) return;            // 2本目の指は使わない
   if (songOver) { nextSong(song.pick); return; }      // 結果の画面：曲のボタンのほかの所に触れたら、白いわくの曲へ
   ptr.id = e.pointerId; ptr.down = true; ptr.sx = e.clientX; ptr.sy = e.clientY; ptrAim();
@@ -4767,7 +4641,7 @@ function musicTick() {
   const now = AC.currentTime;
   if (mus.next < now - 0.05) { mus.step = gridIdx(now, 1); mus.next = T16(mus.step); }   // 止まっていた分はとばす
   curBus = musicBus;            // 背景の音楽は「音楽」の音量を通す
-  try { while (mus.next < now + 0.15) { if (chargeLive() && charge.state !== 'go' && mus.step >= landingStep()) shiftSong(-barSec()); playStep(mus.step, mus.next); mus.step++; mus.next = T16(mus.step); } }
+  try { while (mus.next < now + 0.15) { playStep(mus.step, mus.next); mus.step++; mus.next = T16(mus.step); } }
   finally { curBus = null; }
 }
 // 演奏：伴奏の「勢い」（どの場面でも）。食べると上がり（1つで DRIVE_PER_EAT）、最後に食べてから DRIVE_HOLD 拍はそのまま、そのあと DRIVE_FADE 拍で 0 へ
@@ -4804,7 +4678,7 @@ function playFinale(k, t, j) {
     if (j === 0) for (const pt of F.hit) playPart(pt, k, t, 1, ch);
     const dv = driveAt(t), D = lerp(C.DRIVE_FINALE_MIN, 1, dv), keep = lerp(C.DRIVE_KEEP, 1, dv);   // 演奏：テーマの間のバンドも、勢いで厚さが変わる（テーマのメロディはそのまま）
     for (const pt of (j === 0 && L === 2 ? F.roll : F.band)) playPart(pt, k, t, BEAT.test(pt[0]) ? keep : D, ch);
-    if (j === L - 1 && !(chargeLive() && charge.state !== 'go')) for (const pt of F.fill) playPart(pt, k, t, 1, ch);   // ためON：くり返している間は、フィルを鳴らさない
+    if (j === L - 1) for (const pt of F.fill) playPart(pt, k, t, 1, ch);   // 着地の前の小節の終わりに、フィル（ドラムのつなぎ）
   }
   if (k === land) {                                    // 噴き出す瞬間：属和音で「ジャン」と「ぽんっ」（まだ終わらない。主音に着くのは、花が咲いたとき）
     if (charge.log) charge.log.land = { audio: +t.toFixed(3) };
@@ -4923,10 +4797,7 @@ function botPickMode(pp) {   // 25回目：ボット3種の、サビの前の選
 function botThink(dt) {
   input.up = input.down = input.left = input.right = input.eat = false;
   if (songOver || song.burst) return;
-  if (C.CHARGE && chargeLive()) {                       // ため：合図から1拍待って、トントン押す（人の連打くらいの間）。マックスで1拍こらえたら、もう1回押して噴き出す
-    if (charge.state !== 'off' && (charge.state !== 'ready' || charge.idle >= beatSec()) && clock >= bot.tapAt) { chargeTap(); bot.tapAt = clock + 0.12 + Math.random() * 0.3; }
-    return;
-  }
+  if (chargeLive()) return;                             // 締め：見ているだけ（自動でためて噴き出す）
   const tgOk = t => t && (t.pal ? t.pal.state === 'wait' : foods.includes(t) && t.edible && !t.suck);
   if (bot.target && bot.target.pal) {                   // 仲間へ向かって6秒たっても会えない：少し寄り道してから、また向かう
     if (!bot.palSince) bot.palSince = clock;
