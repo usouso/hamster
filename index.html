@@ -314,7 +314,7 @@ const CONFIG = {
   //   結果は3段階：BUD_CLEAR 個に届かない「少し」（メロディが途中で止まる）／届いた「クリア」（主音で終わる）／全部の「満開」（仲間全員で、もう一度）
   //   曲ごとに変えるときは、設計図の buds: { n, clear }
   BUD_N: 14,                // つぼみの数（26回目にボット3種で決めた。演奏の道の数・PERF_PASS と組で。サビの前に来る道は、どの曲も13〜15本）
-  BUD_CLEAR: 10,            // クリアに必要な、咲いた花の数（曲ごとに、設計図の buds.clear で変える）
+  BUD_CLEAR: 11,            // クリアに必要な、咲いた花の数（曲ごとに、設計図の buds.clear で変える）
   // 演奏の道（26回目）：光が楽譜の時刻どおりに、道の上を1音ずつ進む。光っている音を食べると、その音が楽譜どおりに鳴る（遅れると休み）
   //   道は、くねくねと流れるようにつながる。音と音の間は「光の速さ × 時間」（光の速さは、いまのハムスターのいちばん速い速さの PERF_SPEED 倍）
   //   道の音は、その道を演奏する仲間の楽器で、その時の和音に合う短いフレーズ（宝石の列と同じ形。テーマのメロディは使わない）。色も、その仲間の色
@@ -532,7 +532,7 @@ const SONGS = [
     ev: { fruit: 'marimba', fruitHi: 'marimba', hard: 'glass', blob: 'bell', cluster: 'glass', bump: [['wood', 55], ['wood', 73]], growB: 'marimba', growT: 'glass', unlock: 'bell', sparkle: 'glass' },
   },
   { // 2曲目：シティポップ。エレピの厚い7th・9thの和音、チョッパーベース、ギターのカッティング、16分のグルーヴ
-    buds: { clear: 11 }, perf: { n: [12, 19] },   // 26回目：演奏の道の長さ・クリアの線（ボット3種で決めた）
+    perf: { n: [12, 19] },   // 26回目：演奏の道の長さ（ボット3種で決めた）
     id: 'city', name: '夜の街', short: '夜の街', band: { body: ['キック', 'ベース', 'エレピ', 'スラップ', '低い和音'], teeth: ['ハイハット', 'ギター', 'シェイカー', '鐘', 'きらきら'] }, bpm: 110, swing: 0.54, swingUnit: 16, key: 2, scale: [0, 2, 4, 7, 9], gain: 0.7, mix: { grow: 0.8, big: 0.73, crystal: 1.12, fruitHi: 1.7, bigHit: 1.7, fanfare: 0.8, hookFill: 2.3, kime: 0.8 },
     look: { ground: '#b9b3cf', edge: '#76709a', bg: '#1b1a2c', glow: '255,130,205' },
     chords: { intro: ['G△9', 'F#7b9', 'Bm9', 'D9'], a: ['G△9', 'F#7b9', 'Bm9', 'D9'], b: ['Em9', 'A13', 'F#m7', 'Bm9'], build: ['Em9', 'A13'],
@@ -622,7 +622,7 @@ const SONGS = [
     ev: { fruit: 'upright', fruitHi: 'pizz', hard: 'vibes', blob: 'pianoStab', cluster: 'vibes', bump: [['upright', 33, 1.7], ['woodblock', 0]], growB: 'pianoStab', growT: 'vibes', unlock: 'vibes', sparkle: 'vibes' },
   },
   { // 4曲目：サイケデリックトランス。4つ打ちの間を16分のベースが転がる、フィルターがうねるアシッド、不思議な響きの音階
-    perf: { n: [18, 24] },   // 26回目：演奏の道の長さ（ボット3種で決めた）
+    buds: { clear: 10 }, perf: { n: [18, 24] },   // 26回目：演奏の道の長さ・クリアの線（ボット3種で決めた）
     id: 'psy', name: 'ふしぎな森', short: '森', band: { body: ['キック', 'ベース', 'パッド', 'アシッド', 'タム'], teeth: ['裏ハット', 'ふしぎ音', 'ハイハット', '手拍子', 'きらきら'] }, bpm: 142, swing: 0.5, swingUnit: 8, key: 4, scale: [0, 1, 4, 5, 7, 8, 10], gain: 1.2, mix: { fruit: 1.3, blob: 1.35, big: 0.6, crystal: 1.64, fruitHi: 1.6, bigHit: 1.25, fanfare: 1.25, hookFill: 1.9, kime: 0.7 },
     look: { ground: '#9fc4bd', edge: '#4e837d', bg: '#150d24', glow: '190,120,255' },
     chords: { intro: ['E', 'E'], a: ['E', 'E', 'F', 'E'], b: ['Am', 'F', 'Dm', 'E'], build: ['Dm', 'F'], chorus: ['E', 'E', 'F', 'E'], hold: 'E', theme: ['E', 'F'], land: 'E', calm: ['E', 'Am'] },
@@ -2851,7 +2851,7 @@ function render() {
     return;
   }
   if (!started && !songOver && !helpOpen) drawStartHint();
-  else if (charge.spot > 0.01 && !menuOpen && !helpOpen) drawFinaleSpot();   // ため：まわりを暗く。押す合図と、ためた段数
+  else if (charge.spot > 0.01 && !menuOpen && !helpOpen) drawFinaleSpot();   // ため：まわりを暗く（26回目から、押す合図はなし）
   else if (touchUI && (!AC || AC.state !== 'running') && !songOver) drawSpeaker(ax + aw / 2, ay + ah - 34, true);   // スマホ：画面に触れるまで音を出せない
 }
 // 上の目盛り：果物（体）・宝石（歯）の絵と目盛り、★の目盛り。文字は曲名と巣の数だけ
@@ -5034,13 +5034,13 @@ function botPickMode(pp) {   // 26回目：ボット3種の、サビの前の選
     const near = foods.filter(ok).map(f => [f, dist(f)]).sort((a, b) => a[1] - b[1]).slice(0, 6);
     return near.length ? near[(Math.random() * near.length) | 0][0] : null;
   }
-  if (pp && pd < (bot.mode === 'chase' ? 220 : 160)) return palT;                // 仲間：すぐそばなら会いに行く
   let p = perf.cur && perf.cur.notes.some(n => n.st === 'wait') ? perf.cur : perf.next;
   if ((!p || !p.notes.some(n => n.st === 'wait')) && perf.cands.length) {      // 分かれ道：光を追う＝気ままに、上手＝近い方
     if (!perf.cands.includes(bot.branch)) bot.branch = bot.mode === 'chase' ? perf.cands[(Math.random() * perf.cands.length) | 0] : perf.cands.reduce((a, c) => (Math.hypot(c.notes[0].x - ham.x, c.notes[0].y - ham.y) < Math.hypot(a.notes[0].x - ham.x, a.notes[0].y - ham.y) ? c : a));
     p = bot.branch;
   }
   const ns = p ? p.notes.filter(q => q.st === 'wait' && q.t > song.t - 0.02) : [];
+  if (pp && pd < (p && p.first ? 90 : bot.mode === 'chase' ? 220 : 160)) return palT;   // 仲間：すぐそばなら会いに行く（曲の始めの最初の道は、すぐ右で光っているので、道を先に）
   let n = ns[0];
   if (n && ns[1] && (bot.passNote === n || (song.t >= n.t - C.PERF_EARLY * perfBeat() && Math.hypot(n.x - bot.px, n.y - bot.py) < ham.r + C.PERF_REACH - 2))) { bot.passNote = n; n = ns[1]; }   // 先読み：もう光っている音で、手が動くころには食べている所なら、次の音へ（一度決めたら、そのまま）
   if (n) return { x: n.x, y: n.y, w: 2, perfNote: n };
