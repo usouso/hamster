@@ -1888,9 +1888,9 @@ function startChain(f) {
   const mem = foods.filter(o => o.cluster === f.cluster && !o.suck && !o.chain && d(o) <= C.CHAIN_RANGE).sort((a, b) => d(a) - d(b));
   if (!mem.length) return;
   const music = !!(AC && soundMode === 'music' && mus.timer), now = AC ? AC.currentTime : 0;
-  const t0 = AC && C.SOUND_VOLUME > 0 ? Math.max(blobSnd.t, now) : now, k0 = music ? idx16(t0) : 0;
+  const t0 = AC && C.SOUND_VOLUME > 0 ? Math.max(blobSnd.t, now) : now, eg = eatGrid(), k0 = music ? Math.floor(idx16(t0) / eg) * eg : 0;
   mem.forEach((o, j) => {
-    const snd = music ? T16(k0 + j + 1) : t0 + (j + 1) * C.CHAIN_SFX_GAP;
+    const snd = music ? T16(k0 + (j + 1) * eg) : t0 + (j + 1) * C.CHAIN_SFX_GAP;   // はねる8分の曲は、8分音符ごとに
     o.chain = { snd, at: clock + (snd - now) };   // snd：音の時刻（音の時計）、at：口に届く時刻（ゲームの時計）
   });
 }
@@ -4229,7 +4229,9 @@ function poko(ratio) {   // 食べた手応え：音の高さのない、小さ�
 //   2つ先へは送らない：1つ先も埋まっていたら、そこで和音として一緒に鳴らす（遅れがたまらない。どれも必ず鳴る）
 //   効果音モード：秒で同じように（前の音から sfxGap 秒あける。送るのは sfxGap 1つ分まで）
 const lanes = {};
-function slotTime(lane, now, grid = 1, gap = grid, sfxGap = C.SFX_QUEUE_GAP) {
+const swing8 = () => (S.swing || 0.5) > 0.5 && S.swingUnit !== 16;   // 8分音符がはねる曲（ダンスホール）
+const eatGrid = () => swing8() ? 2 : 1;                              // 食べた音を鳴らす刻み（16分音符いくつおき）：はねる8分の曲は、拍の頭とはねた8分だけ（26回目）
+function slotTime(lane, now, grid = eatGrid(), gap = grid, sfxGap = C.SFX_QUEUE_GAP) {
   if (!(soundMode === 'music' && mus.timer)) {
     const t0 = now + 0.03, key = lane + ':s', last = lanes[key] ?? -9, t = t0 - last >= sfxGap - 1e-6 ? t0 : Math.min(last + sfxGap, t0 + sfxGap);
     lanes[key] = Math.max(last, t); return t;
@@ -4239,6 +4241,37 @@ function slotTime(lane, now, grid = 1, gap = grid, sfxGap = C.SFX_QUEUE_GAP) {
   return T16(k);
 }
 function lanesReset() { for (const k in lanes) delete lanes[k]; }
+const pcOf = m => ((m % 12) + 12) % 12;
+const clashes = (m, ch) => !ch.pcs.includes(pcOf(m)) && ch.pcs.some(c => { const d = pcOf(m - c); return d === 1 || d === 11; });   // 和音の音でなく、和音の音と半音でぶつかる
+function fitNote(m, t, ch, dir = 0) {   // 食べた音を、和音に合わせる（26回目）：拍の頭は和音の音。そのほかは、ぶつかる音だけ近い音へ（dir：メロディの進む向きを優先）
+  if (!(soundMode === 'music' && mus.timer)) return m;
+  const strong = idx16(t + 0.002) % 4 === 0, ct = x => ch.pcs.includes(pcOf(x)), sc = x => S.scale.includes(pcOf(x - S.key));
+  if (ct(m) || (!strong && !clashes(m, ch))) return m;
+  const order = dir < 0 ? [-1, 1, -2, 2, -3, 3, -4, 4, -5, 5] : [1, -1, 2, -2, 3, -3, 4, -4, 5, -5];
+  for (const d of order) if (strong ? ct(m + d) : ct(m + d) || (sc(m + d) && !clashes(m + d, ch))) return m + d;
+  return m;
+}
+// ダンスホールの果物：ウッドベースの歩くベース。拍の頭は和音の音（前の音から2〜5半音、進む向きに）、はねた8分は次の拍の和音へなめらかにつなぐ音（ぶつからない音だけ）
+function walkNote(t, ch) {
+  const W = bass.walk && AC.currentTime - bass.walk.at < 1.5 ? bass.walk : (bass.walk = { m: null, dir: 1, at: 0 }), lo = 38, hi = 57;
+  const k = idx16(t + 0.002), strong = k % 4 === 0, cts = c => chordNotes(c, lo, hi);
+  let m;
+  if (W.m === null) m = rootIn(ch, 40);                                                  // 歩き始め：根音
+  else if (strong) {
+    const c = cts(ch), fw = c.filter(x => (x - W.m) * W.dir >= 2 && Math.abs(x - W.m) <= 5);
+    if (!fw.length) W.dir = -W.dir;
+    const c2 = fw.length ? fw : c.filter(x => (x - W.m) * W.dir >= 1 && Math.abs(x - W.m) <= 7);
+    m = c2.length ? c2.reduce((a, b) => (Math.abs(b - W.m) < Math.abs(a - W.m) ? b : a)) : rootIn(ch, 40);
+  } else {
+    const nch = chordAt(T16(k + 2)), tg = cts(nch).filter(x => (x - W.m) * W.dir >= 1).sort((a, b) => Math.abs(a - W.m) - Math.abs(b - W.m))[0] ?? rootIn(nch, 40);
+    const pass = [];
+    for (let x = Math.min(W.m, tg) + 1; x < Math.max(W.m, tg); x++) if (S.scale.includes(pcOf(x - S.key)) && !clashes(x, ch)) pass.push(x);
+    m = pass.length ? pass[W.dir > 0 ? 0 : pass.length - 1] : fitNote(tg, t, ch);
+  }
+  if (m >= hi - 2) W.dir = -1; if (m <= lo + 2) W.dir = 1;
+  W.m = m; W.at = AC.currentTime;
+  return m;
+}
 // 果物の音の高さのある音：次の16分音符に（上の slotTime）。続けて食べても、どれも鳴る
 //   果物の流れ1つ＝フレーズ1つ。形（BASS_FORMS）は流れごとに選び、同じ形は続けない。音は、その時の和音の根音から（根音は FRUIT_ROOT から1オクターブの中）
 //   楽器は、立ち上がりのはっきりした音（設計図の ev.fruitHi）。1オクターブ下に、その曲のベースの楽器（ev.fruit）を小さく重ねる
@@ -4255,7 +4288,7 @@ const BASS_FORMS = [
   { id: 'down', len: 1.0, note: (j, ch, r) => cyc([r + 12, ...scaleNotes(r, r + 11).reverse()].slice(0, 8), j) },   // 1オクターブ上から、歩くように下りる
 ];
 const FORM_JA = { bounce: '根音と5度を行き来して跳ねる', walk: '歩くように上がる', octave: 'オクターブで跳ぶ', repeat: '同じ音を刻んで最後に跳ぶ', arp: '和音を回る', down: '上から歩くように下りる' };
-const bass = { last: '', free: null, hardK: 0 };   // last：前のフレーズの形。free：流れでない果物のフレーズ
+const bass = { last: '', free: null, hardK: 0, walk: null };   // last：前のフレーズの形。free：流れでない果物のフレーズ
 function pickBass() { const ok = BASS_FORMS.filter(f => f.id !== bass.last), f = ok[(Math.random() * ok.length) | 0]; bass.last = f.id; return f; }
 function fruitTone(t, m, len, v, w) {   // 果物の1音：はっきりした楽器で m、下に1オクターブ下を小さく
   play(S.ev.fruitHi || S.ev.fruit, t, m, len, v * mx('fruitHi'), { w });
@@ -4281,18 +4314,22 @@ function eatNote(q) {
     if (!bass.free || now - bass.free.at > C.EAT_COMBO_GAP) bass.free = { form: pickBass(), j: 0, n: 8 };
     ph = bass.free; ph.at = now;
   }
-  const j = ph.j++, t = slotTime('fruit', now), ch = music ? chordAt(t) : CH.tonic, r = rootIn(ch, C.FRUIT_ROOT);
+  const j = ph.j++, t = slotTime('fruit', now), ch = music ? chordAt(t) : CH.tonic, r = rootIn(ch, C.FRUIT_ROOT), walk = swing8() && music;
   if (last) {   // 流れの最後の1個：根音に着地して「ドン」
     const g = (S.gain ?? 1) * mx('big') * 0.85, K = S.kit;
-    fruitTone(t, r, 0.4, vol * 1.15, 0.6);
+    if (walk) { const rb = rootIn(ch, 40); play(S.ev.fruit, t, rb, 0.5, vol * 1.3 * mx('fruit')); play(S.ev.fruitHi, t, rb + 12, 0.4, vol * 0.5 * mx('fruitHi')); bass.walk = null; }
+    else fruitTone(t, r, 0.4, vol * 1.15, 0.6);
     play(K.kick, t, 0, 0, 0.12 * g);
     play(K.bass, t, rootIn(ch, 36), beatSec() * 0.9, 0.1 * g);
     myNote(q.x, q.y, t, 'fruit', 1);
     (ph.log || (ph.log = [])).push(r); bass.log = { form: ph.form.id, notes: ph.log.slice() };
     return;
   }
-  const m0 = ph.form.note(j, ch, r, Math.max(2, (ph.n || 8) - 1)), m = Number.isFinite(m0) ? m0 : r, both = q.kind === 'both';   // 念のため：決まらなければ根音
-  fruitTone(t, m, 0.2 * ph.form.len, both ? vol * 0.8 : vol, 0.3);
+  const m0 = ph.form.note(j, ch, r, Math.max(2, (ph.n || 8) - 1)), both = q.kind === 'both';
+  const m = walk ? walkNote(t, ch) : fitNote(Number.isFinite(m0) ? m0 : r, t, ch, ph.lastM === undefined ? 0 : Math.sign(m0 - ph.lastM));   // 念のため：決まらなければ根音
+  ph.lastM = m0;
+  if (walk) { play(S.ev.fruit, t, m, 0.32, (both ? vol * 0.8 : vol) * 1.3 * mx('fruit')); play(S.ev.fruitHi, t, m + 12, 0.22, (both ? vol * 0.8 : vol) * 0.45 * mx('fruitHi')); }   // ウッドベース（上に、はじく音を小さく）
+  else fruitTone(t, m, 0.2 * ph.form.len, both ? vol * 0.8 : vol, 0.3);
   if (both) play(S.ev.hard, t, m + 12 > 96 ? m : m + 12, 0.9, vol * 0.25 * mx('hard'));   // どんぐり：小さなきらっ
   myNote(q.x, q.y, t, both ? 'both' : 'fruit', 0.45 + 0.4 * q.ratio);
   (ph.log || (ph.log = [])).push(m);
@@ -4364,7 +4401,7 @@ function phraseNote(form, dir, j, m, pool) {   // 形の j 音目（m 音のう�
 function rowNote(g, done, x, y, f) {
   const now = AC.currentTime, music = soundMode === 'music' && !!mus.timer, th = S.theme;
   if (!g.form) rowStart(g, f);
-  const t = slotTime('row', now, th.grid, th.gap, C.ROW_SFX_GAP);   // 次の刻み。前の列の音に近すぎたら1つ先へ（それより先には送らない）
+  const t = slotTime('row', now, Math.max(th.grid, eatGrid()), Math.max(th.gap, eatGrid()), C.ROW_SFX_GAP);   // 次の刻み。前の列の音に近すぎたら1つ先へ（それより先には送らない）
   const ch = music ? chordAt(t) : CH.tonic, v = g.voice, o = v ? v[2] || {} : null, p = g.pal;
   const [lo, hi] = v ? voiceRange(o) : [62 + S.key, 86 + S.key], pool = scaleNotes(lo, hi), m = Math.max(2, g.n - 1);
   const col = p ? hexRGB(PAL_COL[p.kind][0]) : null;
@@ -4374,7 +4411,8 @@ function rowNote(g, done, x, y, f) {
     if (p) p.pulseAt = t;   // その仲間が、拍に合わせて少し大きく弾む
   };
   if (!done) {
-    const j = Math.min(g.j++, m - 1), fm = g.form, mm = phraseNote(fm, g.dir, j, m, pool), last = j === m - 1;
+    const j = Math.min(g.j++, m - 1), fm = g.form, m0 = phraseNote(fm, g.dir, j, m, pool), mm = fitNote(m0, t, ch, g.lastM === undefined ? 0 : Math.sign(m0 - g.lastM)), last = j === m - 1;
+    g.lastM = m0;
     sing(mm, last && fm.last ? fm.last : fm.len, last && fm.last ? 1.15 : 1);
     myNote(x, y, t, 'gem', 0.55, col); g.log.notes.push(mm);
     return;
@@ -4407,7 +4445,7 @@ function blobNote(g, done, id, at, x, y) {   // at：連鎖の吸い込みで口
     blobSnd.t = music ? nextGrid(Math.max(wait, blobSnd.t + 0.01), 2) : wait;
     blobSnd.k = 0;
   }
-  const t = at !== undefined ? Math.max(at, now + 0.005) : blobSnd.t, ch = music ? chordAt(t) : CH.tonic, notes = chordNotes(triad(ch), 67, 100);
+  const t = at !== undefined ? (at >= now + 0.005 ? at : music ? nextGrid(now + 0.01, eatGrid()) : now + 0.005) : blobSnd.t, ch = music ? chordAt(t) : CH.tonic, notes = chordNotes(triad(ch), 67, 100);
   play(S.ev.blob, t, notes[Math.min(blobSnd.k, notes.length - 1)], 0.9, 0.034 * mx('blob'));
   if (blobSnd.k === 0) syn(t, hz(chordNotes(triad(ch), 48, 59)[0]), 0.7, 0.03, { atk: 0.006 });   // 下に低い音を1つ敷く
   blobSnd.k++;
@@ -4519,8 +4557,9 @@ function hookPhrase(kime) {   // 決めメロディの、次のひとフレー�
   const H = S.hook, i = special.hookPi++ % H.phrases.length, ph = H.phrases[i], len = Math.max(...ph.map(n => n[0] + n[2]));
   const sl = hookSlot(AC.currentTime, len), music = soundMode === 'music' && !!mus.timer, base = 72 + S.key, notes = [];
   let prev = null;
-  for (const [st, rel, l, acc] of ph) {
-    const t = sl.at(st), ch = music ? chordAt(t) : CH.tonic, m0 = base + rel, m = l >= 3 || acc ? hookSnap(m0, ch, prev === null ? 1 : Math.sign(m0 - prev) || 1) : m0; prev = m0;
+  for (const [st0, rel, l, acc] of ph) {
+    const st = swing8() ? Math.floor(st0 / 2) * 2 : st0, t = sl.at(st), ch = music ? chordAt(t) : CH.tonic, m0 = base + rel, dir = prev === null ? 1 : Math.sign(m0 - prev) || 1;
+    const m = fitNote(l >= 3 || acc ? hookSnap(m0, ch, dir) : m0, t, ch, dir); prev = m0;
     curBus = sl.bus; hits(H.lead, m, t, (acc ? 1.1 : 1) * mx('hook'), ch, l * sixteenth());
     curBus = null; if (kime && acc) kimeHit(t, ch);   // キメは、次のフレーズで切らない
     notes.push(m);
